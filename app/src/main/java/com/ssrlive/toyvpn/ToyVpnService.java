@@ -16,6 +16,7 @@
 
 package com.ssrlive.toyvpn;
 
+import android.annotation.TargetApi;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -23,6 +24,7 @@ import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.os.ParcelFileDescriptor;
@@ -157,6 +159,7 @@ public class ToyVpnService extends VpnService implements Handler.Callback {
         stopForeground(true);
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     private void updateForegroundNotification(final int message) {
         final String NOTIFICATION_CHANNEL_ID = "ToyVpn";
         NotificationManager mNotificationManager = (NotificationManager) getSystemService(

@@ -16,10 +16,12 @@
 
 package com.ssrlive.toyvpn;
 
+import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.Bundle;
 import android.widget.RadioButton;
 import android.widget.TextView;
@@ -42,6 +44,7 @@ public class ToyVpnClient extends Activity {
         String PACKAGES = "packages";
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -125,6 +128,7 @@ public class ToyVpnClient extends Activity {
         return !hasIncompleteProxyConfigs;
     }
 
+    @TargetApi(Build.VERSION_CODES.N)
     private boolean checkPackages(Set<String> packageNames) {
         final boolean hasCorrectPackageNames = packageNames.isEmpty() ||
                 getPackageManager().getInstalledPackages(0).stream()

@@ -18,10 +18,12 @@ package com.ssrlive.toyvpn;
 
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
+import android.annotation.TargetApi;
 import android.app.PendingIntent;
 import android.content.pm.PackageManager;
 import android.net.ProxyInfo;
 import android.net.VpnService;
+import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.text.TextUtils;
 import android.util.Log;
@@ -303,6 +305,7 @@ public class ToyVpnConnection implements Runnable {
         throw new IOException("Timed out");
     }
 
+    @TargetApi(Build.VERSION_CODES.Q)
     private ParcelFileDescriptor configure(String parameters) throws IllegalArgumentException {
         // Configure a builder while parsing the parameters.
         VpnService.Builder builder = mService.new Builder();
