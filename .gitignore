@@ -3,6 +3,15 @@
 *.ap_
 *.aab
 
+cmake-build-debug/
+cmake-build-release/
+x64/
+Debug/
+Release/
+.vs/
+.vscode/
+.idea/
+
 ToyVpnServer
 
 # Files for the ART/Dalvik VM

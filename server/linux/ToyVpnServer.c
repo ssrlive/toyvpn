@@ -26,6 +26,7 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdbool.h>
 
 #ifdef __linux__
 
@@ -62,7 +63,7 @@ static int get_interface(char *name)
 {
     int interface = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
 
-    ifreq ifr;
+    struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
@@ -83,6 +84,10 @@ static int get_interface(char *name)
 
 static int get_tunnel(char *port, char *secret)
 {
+    struct sockaddr_in6 addr;
+    char packet[1024];
+    socklen_t addrlen;
+
     // We use an IPv6 socket to cover both IPv4 and IPv6.
     int tunnel = socket(AF_INET6, SOCK_DGRAM, 0);
     int flag = 1;
@@ -91,13 +96,12 @@ static int get_tunnel(char *port, char *secret)
     setsockopt(tunnel, IPPROTO_IPV6, IPV6_V6ONLY, &flag, sizeof(flag));
 
     // Accept packets received on any local address.
-    sockaddr_in6 addr;
     memset(&addr, 0, sizeof(addr));
     addr.sin6_family = AF_INET6;
     addr.sin6_port = htons(atoi(port));
 
     // Call bind(2) in a loop since Linux does not have SO_REUSEPORT.
-    while (bind(tunnel, (sockaddr *)&addr, sizeof(addr))) {
+    while (bind(tunnel, (struct sockaddr *)&addr, sizeof(addr))) {
         if (errno != EADDRINUSE) {
             return -1;
         }
@@ -105,12 +109,11 @@ static int get_tunnel(char *port, char *secret)
     }
 
     // Receive packets till the secret matches.
-    char packet[1024];
-    socklen_t addrlen;
     do {
+        int n;
         addrlen = sizeof(addr);
-        int n = recvfrom(tunnel, packet, sizeof(packet), 0,
-                (sockaddr *)&addr, &addrlen);
+        n = recvfrom(tunnel, packet, sizeof(packet), 0,
+                (struct sockaddr *)&addr, &addrlen);
         if (n <= 0) {
             return -1;
         }
@@ -118,7 +121,7 @@ static int get_tunnel(char *port, char *secret)
     } while (packet[0] != 0 || strcmp(secret, &packet[1]));
 
     // Connect to the client as we only handle one client at a time.
-    connect(tunnel, (sockaddr *)&addr, addrlen);
+    connect(tunnel, (struct sockaddr *)&addr, addrlen);
     return tunnel;
 }
 
@@ -126,7 +129,8 @@ static void build_parameters(char *parameters, int size, int argc, char **argv)
 {
     // Well, for simplicity, we just concatenate them (almost) blindly.
     int offset = 0;
-    for (int i = 4; i < argc; ++i) {
+    int i;
+    for (i = 4; i < argc; ++i) {
         char *parameter = argv[i];
         int length = strlen(parameter);
         char delimiter = ',';
@@ -161,6 +165,9 @@ static void build_parameters(char *parameters, int size, int argc, char **argv)
 
 int main(int argc, char **argv)
 {
+    char parameters[1024];
+    int tunnel, interface;
+
     if (argc < 5) {
         printf("Usage: %s <tunN> <port> <secret> options...\n"
                "\n"
@@ -178,15 +185,16 @@ int main(int argc, char **argv)
     }
 
     // Parse the arguments and set the parameters.
-    char parameters[1024];
     build_parameters(parameters, sizeof(parameters), argc, argv);
 
     // Get TUN interface.
-    int interface = get_interface(argv[1]);
+    interface = get_interface(argv[1]);
 
     // Wait for a tunnel.
-    int tunnel;
     while ((tunnel = get_tunnel(argv[2], argv[3])) != -1) {
+        int i, timer;
+        char packet[32767];
+
         printf("%s: Here comes a new tunnel\n", argv[1]);
 
         // On UN*X, there are many ways to deal with multiple file
@@ -199,17 +207,17 @@ int main(int argc, char **argv)
         fcntl(tunnel, F_SETFL, O_NONBLOCK);
 
         // Send the parameters several times in case of packet loss.
-        for (int i = 0; i < 3; ++i) {
+        for (i = 0; i < 3; ++i) {
             send(tunnel, parameters, sizeof(parameters), MSG_NOSIGNAL);
         }
 
         // Allocate the buffer for a single packet.
-        char packet[32767];
+        memset(packet, 0, sizeof(packet));
 
         // We use a timer to determine the status of the tunnel. It
         // works on both sides. A positive value means sending, and
         // any other means receiving. We start with receiving.
-        int timer = 0;
+        timer = 0;
 
         // We keep forwarding packets till something goes wrong.
         while (true) {
@@ -264,9 +272,10 @@ int main(int argc, char **argv)
                 // We are receiving for a long time but not sending.
                 // Can you figure out why we use a different value? :)
                 if (timer < -16000) {
+                    int i;
                     // Send empty control messages.
                     packet[0] = 0;
-                    for (int i = 0; i < 3; ++i) {
+                    for (i = 0; i < 3; ++i) {
                         send(tunnel, packet, 1, MSG_NOSIGNAL);
                     }
 
