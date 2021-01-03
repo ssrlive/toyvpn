@@ -41,8 +41,8 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ToyVpnService extends VpnService implements Handler.Callback {
     private static final String TAG = ToyVpnService.class.getSimpleName();
 
-    public static final String ACTION_CONNECT = "com.example.android.toyvpn.START";
-    public static final String ACTION_DISCONNECT = "com.example.android.toyvpn.STOP";
+    public static final String ACTION_CONNECT = "com.ssrlive.toyvpn.START";
+    public static final String ACTION_DISCONNECT = "com.ssrlive.toyvpn.STOP";
 
     private Handler mHandler;
 
@@ -55,7 +55,7 @@ public class ToyVpnService extends VpnService implements Handler.Callback {
     private final AtomicReference<Thread> mConnectingThread = new AtomicReference<>();
     private final AtomicReference<Connection> mConnection = new AtomicReference<>();
 
-    private AtomicInteger mNextConnectionId = new AtomicInteger(1);
+    private final AtomicInteger mNextConnectionId = new AtomicInteger(1);
 
     private PendingIntent mConfigureIntent;
 
@@ -63,6 +63,7 @@ public class ToyVpnService extends VpnService implements Handler.Callback {
     public void onCreate() {
         // The handler is only used to show messages.
         if (mHandler == null) {
+            //noinspection deprecation
             mHandler = new Handler(this);
         }
 

@@ -201,6 +201,7 @@ public class ToyVpnConnection implements Runnable {
             long lastReceiveTime = System.currentTimeMillis();
 
             // We keep forwarding packets till something goes wrong.
+            //noinspection InfiniteLoopStatement
             while (true) {
                 // Assume that we did not make any progress in this iteration.
                 boolean idle = true;
@@ -236,6 +237,7 @@ public class ToyVpnConnection implements Runnable {
                 // If we are idle or waiting for the network, sleep for a
                 // fraction of time to avoid busy looping.
                 if (idle) {
+                    //noinspection BusyWait
                     Thread.sleep(IDLE_INTERVAL_MS);
                     final long timeNow = System.currentTimeMillis();
 
@@ -361,7 +363,7 @@ public class ToyVpnConnection implements Runnable {
         return vpnInterface;
     }
 
-    private final String getTag() {
+    private String getTag() {
         return ToyVpnConnection.class.getSimpleName() + "[" + mConnectionId + "]";
     }
 }
