@@ -23,6 +23,7 @@
      <application android:label="@string/app">
 
         <activity android:name=".ToyVpnClient"
+            android:exported="true"
                 android:configChanges="orientation|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
@@ -31,6 +32,7 @@
         </activity>
 
         <service android:name=".ToyVpnService"
+            android:exported="true"
                 android:permission="android.permission.BIND_VPN_SERVICE">
             <intent-filter>
                 <action android:name="android.net.VpnService"/>

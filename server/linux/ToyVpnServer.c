@@ -18,10 +18,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if defined(_MSC_VER)
+#include <WinSock2.h>
+#include <WS2tcpip.h>
+#pragma comment(lib, "Ws2_32.lib")
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -166,7 +172,7 @@ static void build_parameters(char *parameters, int size, int argc, char **argv)
 int main(int argc, char **argv)
 {
     char parameters[1024];
-    int tunnel, interface;
+    int tunnel, _interface;
 
     if (argc < 5) {
         printf("Usage: %s <tunN> <port> <secret> options...\n"
@@ -188,7 +194,7 @@ int main(int argc, char **argv)
     build_parameters(parameters, sizeof(parameters), argc, argv);
 
     // Get TUN interface.
-    interface = get_interface(argv[1]);
+    _interface = get_interface(argv[1]);
 
     // Wait for a tunnel.
     while ((tunnel = get_tunnel(argv[2], argv[3])) != -1) {
@@ -225,7 +231,7 @@ int main(int argc, char **argv)
             bool idle = true;
 
             // Read the outgoing packet from the input stream.
-            int length = read(interface, packet, sizeof(packet));
+            int length = read(_interface, packet, sizeof(packet));
             if (length > 0) {
                 // Write the outgoing packet to the tunnel.
                 send(tunnel, packet, length, MSG_NOSIGNAL);
@@ -248,7 +254,7 @@ int main(int argc, char **argv)
                 // Ignore control messages, which start with zero.
                 if (packet[0] != 0) {
                     // Write the incoming packet to the output stream.
-                    write(interface, packet, length);
+                    write(_interface, packet, length);
                 }
 
                 // There might be more incoming packets.
