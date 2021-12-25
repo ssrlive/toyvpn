@@ -67,19 +67,19 @@
 
 static int get_interface(char *name)
 {
-    int interface = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
+    int _interface = open("/dev/net/tun", O_RDWR | O_NONBLOCK);
 
     struct ifreq ifr;
     memset(&ifr, 0, sizeof(ifr));
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
-    if (ioctl(interface, TUNSETIFF, &ifr)) {
+    if (ioctl(_interface, TUNSETIFF, &ifr)) {
         perror("Cannot get TUN interface");
         exit(1);
     }
 
-    return interface;
+    return _interface;
 }
 
 #else
@@ -171,7 +171,7 @@ static void build_parameters(char *parameters, int size, int argc, char **argv)
 
 int main(int argc, char **argv)
 {
-    char parameters[1024];
+    char parameters[1024] = { 0 };
     int tunnel, _interface;
 
     if (argc < 5) {
@@ -243,6 +243,7 @@ int main(int argc, char **argv)
                 if (timer < 1) {
                     timer = 1;
                 }
+                printf("Outgoing packet write to tunnel %d size %d.\n", tunnel, length);
             }
 
             // Read the incoming packet from the tunnel.
@@ -255,6 +256,7 @@ int main(int argc, char **argv)
                 if (packet[0] != 0) {
                     // Write the incoming packet to the output stream.
                     write(_interface, packet, length);
+                    printf("Tunnel %d packet write to output stream size %d.\n", tunnel, length);
                 }
 
                 // There might be more incoming packets.
