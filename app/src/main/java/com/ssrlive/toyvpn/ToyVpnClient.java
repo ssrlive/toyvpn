@@ -20,6 +20,8 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.util.Log;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
@@ -48,7 +50,14 @@ public class ToyVpnClient extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.form);
+
+        int orientation = this.getResources().getConfiguration().orientation;
+        if (orientation == Configuration.ORIENTATION_LANDSCAPE || orientation == Configuration.ORIENTATION_PORTRAIT) {
+            setContentView(R.layout.form);
+        } else {
+            Log.v("Tag", "Unknown orientation");
+            return;
+        }
 
         final TextView serverAddress = findViewById(R.id.address);
         final TextView serverPort = findViewById(R.id.port);
@@ -73,8 +82,9 @@ public class ToyVpnClient extends Activity {
                 Prefs.PACKAGES, Collections.emptySet())));
 
         findViewById(R.id.connect).setOnClickListener(v -> {
-            if (!checkProxyConfigs(proxyHost.getText().toString(),
-                    proxyPort.getText().toString())) {
+            String sProxyHost = proxyHost.getText().toString();
+            String sProxyPort = proxyPort.getText().toString();
+            if (!checkProxyConfigs(sProxyHost, sProxyPort)) {
                 return;
             }
 
@@ -95,7 +105,7 @@ public class ToyVpnClient extends Activity {
             }
             int proxyPortNum;
             try {
-                proxyPortNum = Integer.parseInt(proxyPort.getText().toString());
+                proxyPortNum = Integer.parseInt(sProxyPort);
             } catch (NumberFormatException e) {
                 proxyPortNum = 0;
             }
@@ -103,11 +113,11 @@ public class ToyVpnClient extends Activity {
                     .putString(Prefs.SERVER_ADDRESS, serverAddress.getText().toString())
                     .putInt(Prefs.SERVER_PORT, serverPortNum)
                     .putString(Prefs.SHARED_SECRET, sharedSecret.getText().toString())
-                    .putString(Prefs.PROXY_HOSTNAME, proxyHost.getText().toString())
+                    .putString(Prefs.PROXY_HOSTNAME, sProxyHost)
                     .putInt(Prefs.PROXY_PORT, proxyPortNum)
                     .putBoolean(Prefs.ALLOW, allowed.isChecked())
                     .putStringSet(Prefs.PACKAGES, packageSet)
-                    .commit();
+                    .apply();
             Intent intent = VpnService.prepare(ToyVpnClient.this);
             if (intent != null) {
                 startActivityForResult(intent, 0);
