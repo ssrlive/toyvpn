@@ -130,6 +130,12 @@ public class ToyVpnClient extends Activity {
         });
     }
 
+    @Override
+    public void onSaveInstanceState(Bundle outState) {
+        // save some settings while this activaty switching out.
+        // using SharedPreferences.
+    }
+
     private boolean checkProxyConfigs(String proxyHost, String proxyPort) {
         final boolean hasIncompleteProxyConfigs = proxyHost.isEmpty() != proxyPort.isEmpty();
         if (hasIncompleteProxyConfigs) {
