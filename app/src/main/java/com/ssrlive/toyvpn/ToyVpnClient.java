@@ -57,6 +57,7 @@ public class ToyVpnClient extends Activity {
 
     SharedPreferences prefs;
 
+    @TargetApi(Build.VERSION_CODES.O)
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -110,6 +111,7 @@ public class ToyVpnClient extends Activity {
         onRestoreInstanceState(savedInstanceState);
     }
 
+    @TargetApi(Build.VERSION_CODES.O)
     @Override
     public void onRestoreInstanceState(Bundle savedInstanceState) {
         // super.onRestoreInstanceState(savedInstanceState);
@@ -126,6 +128,7 @@ public class ToyVpnClient extends Activity {
                 Prefs.PACKAGES, Collections.emptySet())));
     }
 
+    @TargetApi(Build.VERSION_CODES.N)
     @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
