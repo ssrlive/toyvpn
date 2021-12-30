@@ -46,7 +46,17 @@ public class ToyVpnClient extends Activity {
         String PACKAGES = "packages";
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
+    TextView serverAddress;
+    TextView serverPort;
+    TextView sharedSecret;
+    TextView proxyHost;
+    TextView proxyPort;
+
+    RadioButton allowed;
+    TextView packages;
+
+    SharedPreferences prefs;
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -59,27 +69,16 @@ public class ToyVpnClient extends Activity {
             return;
         }
 
-        final TextView serverAddress = findViewById(R.id.address);
-        final TextView serverPort = findViewById(R.id.port);
-        final TextView sharedSecret = findViewById(R.id.secret);
-        final TextView proxyHost = findViewById(R.id.proxyhost);
-        final TextView proxyPort = findViewById(R.id.proxyport);
+        serverAddress = findViewById(R.id.address);
+        serverPort = findViewById(R.id.port);
+        sharedSecret = findViewById(R.id.secret);
+        proxyHost = findViewById(R.id.proxyhost);
+        proxyPort = findViewById(R.id.proxyport);
 
-        final RadioButton allowed = findViewById(R.id.allowed);
-        final TextView packages = findViewById(R.id.packages);
+        allowed = findViewById(R.id.allowed);
+        packages = findViewById(R.id.packages);
 
-        final SharedPreferences prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
-        serverAddress.setText(prefs.getString(Prefs.SERVER_ADDRESS, ""));
-        int serverPortPrefValue = prefs.getInt(Prefs.SERVER_PORT, 0);
-        serverPort.setText(String.valueOf(serverPortPrefValue == 0 ? "" : serverPortPrefValue));
-        sharedSecret.setText(prefs.getString(Prefs.SHARED_SECRET, ""));
-        proxyHost.setText(prefs.getString(Prefs.PROXY_HOSTNAME, ""));
-        int proxyPortPrefValue = prefs.getInt(Prefs.PROXY_PORT, 0);
-        proxyPort.setText(proxyPortPrefValue == 0 ? "" : String.valueOf(proxyPortPrefValue));
-
-        allowed.setChecked(prefs.getBoolean(Prefs.ALLOW, true));
-        packages.setText(String.join(", ", prefs.getStringSet(
-                Prefs.PACKAGES, Collections.emptySet())));
+        prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
 
         findViewById(R.id.connect).setOnClickListener(v -> {
             String sProxyHost = proxyHost.getText().toString();
@@ -97,27 +96,6 @@ public class ToyVpnClient extends Activity {
                 return;
             }
 
-            int serverPortNum;
-            try {
-                serverPortNum = Integer.parseInt(serverPort.getText().toString());
-            } catch (NumberFormatException e) {
-                serverPortNum = 0;
-            }
-            int proxyPortNum;
-            try {
-                proxyPortNum = Integer.parseInt(sProxyPort);
-            } catch (NumberFormatException e) {
-                proxyPortNum = 0;
-            }
-            prefs.edit()
-                    .putString(Prefs.SERVER_ADDRESS, serverAddress.getText().toString())
-                    .putInt(Prefs.SERVER_PORT, serverPortNum)
-                    .putString(Prefs.SHARED_SECRET, sharedSecret.getText().toString())
-                    .putString(Prefs.PROXY_HOSTNAME, sProxyHost)
-                    .putInt(Prefs.PROXY_PORT, proxyPortNum)
-                    .putBoolean(Prefs.ALLOW, allowed.isChecked())
-                    .putStringSet(Prefs.PACKAGES, packageSet)
-                    .apply();
             Intent intent = VpnService.prepare(ToyVpnClient.this);
             if (intent != null) {
                 startActivityForResult(intent, 0);
@@ -128,12 +106,55 @@ public class ToyVpnClient extends Activity {
         findViewById(R.id.disconnect).setOnClickListener(v -> {
             startService(getServiceIntent().setAction(ToyVpnService.ACTION_DISCONNECT));
         });
+
+        onRestoreInstanceState(savedInstanceState);
+    }
+
+    @Override
+    public void onRestoreInstanceState(Bundle savedInstanceState) {
+        // super.onRestoreInstanceState(savedInstanceState);
+        serverAddress.setText(prefs.getString(Prefs.SERVER_ADDRESS, ""));
+        int serverPortPrefValue = prefs.getInt(Prefs.SERVER_PORT, 0);
+        serverPort.setText(String.valueOf(serverPortPrefValue == 0 ? "" : serverPortPrefValue));
+        sharedSecret.setText(prefs.getString(Prefs.SHARED_SECRET, ""));
+        proxyHost.setText(prefs.getString(Prefs.PROXY_HOSTNAME, ""));
+        int proxyPortPrefValue = prefs.getInt(Prefs.PROXY_PORT, 0);
+        proxyPort.setText(proxyPortPrefValue == 0 ? "" : String.valueOf(proxyPortPrefValue));
+
+        allowed.setChecked(prefs.getBoolean(Prefs.ALLOW, true));
+        packages.setText(String.join(", ", prefs.getStringSet(
+                Prefs.PACKAGES, Collections.emptySet())));
     }
 
     @Override
     public void onSaveInstanceState(Bundle outState) {
-        // save some settings while this activaty switching out.
-        // using SharedPreferences.
+        super.onSaveInstanceState(outState);
+        int serverPortNum;
+        try {
+            serverPortNum = Integer.parseInt(serverPort.getText().toString());
+        } catch (NumberFormatException e) {
+            serverPortNum = 0;
+        }
+        int proxyPortNum;
+        try {
+            proxyPortNum = Integer.parseInt(proxyPort.getText().toString());
+        } catch (NumberFormatException e) {
+            proxyPortNum = 0;
+        }
+        final Set<String> packageSet =
+                Arrays.stream(packages.getText().toString().split(","))
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.toSet());
+        prefs.edit()
+                .putString(Prefs.SERVER_ADDRESS, serverAddress.getText().toString())
+                .putInt(Prefs.SERVER_PORT, serverPortNum)
+                .putString(Prefs.SHARED_SECRET, sharedSecret.getText().toString())
+                .putString(Prefs.PROXY_HOSTNAME, proxyHost.getText().toString())
+                .putInt(Prefs.PROXY_PORT, proxyPortNum)
+                .putBoolean(Prefs.ALLOW, allowed.isChecked())
+                .putStringSet(Prefs.PACKAGES, packageSet)
+                .apply();
     }
 
     private boolean checkProxyConfigs(String proxyHost, String proxyPort) {

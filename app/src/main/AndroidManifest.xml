@@ -25,6 +25,7 @@
         <activity android:name=".ToyVpnClient"
             android:exported="true"
             android:screenOrientation="portrait"
+            android:persistableMode="persistAcrossReboots"
                 android:configChanges="orientation|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
