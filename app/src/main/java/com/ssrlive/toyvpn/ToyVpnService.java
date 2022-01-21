@@ -38,7 +38,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class ToyVpnService extends VpnService implements Handler.Callback {
+public class ToyVpnService extends VpnService {
     private static final String TAG = ToyVpnService.class.getSimpleName();
 
     public static final String ACTION_CONNECT = "com.ssrlive.toyvpn.START";
@@ -64,7 +64,16 @@ public class ToyVpnService extends VpnService implements Handler.Callback {
         // The handler is only used to show messages.
         if (mHandler == null) {
             //noinspection deprecation
-            mHandler = new Handler(this);
+            mHandler = new Handler(new Handler.Callback() {
+                @Override
+                public boolean handleMessage(Message msg) {
+                    Toast.makeText(ToyVpnService.this, msg.what, Toast.LENGTH_SHORT).show();
+                    if (msg.what != R.string.disconnected) {
+                        updateForegroundNotification(msg.what);
+                    }
+                    return true;
+                }
+            });
         }
 
         // Create the intent to "configure" the connection (just start ToyVpnClient).
@@ -86,15 +95,6 @@ public class ToyVpnService extends VpnService implements Handler.Callback {
     @Override
     public void onDestroy() {
         disconnect();
-    }
-
-    @Override
-    public boolean handleMessage(Message message) {
-        Toast.makeText(this, message.what, Toast.LENGTH_SHORT).show();
-        if (message.what != R.string.disconnected) {
-            updateForegroundNotification(message.what);
-        }
-        return true;
     }
 
     private void connect() {
