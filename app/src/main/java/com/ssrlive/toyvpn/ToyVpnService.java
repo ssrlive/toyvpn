@@ -162,13 +162,12 @@ public class ToyVpnService extends VpnService {
 
     @TargetApi(Build.VERSION_CODES.O)
     private void updateForegroundNotification(final int message) {
-        final String NOTIFICATION_CHANNEL_ID = "ToyVpn";
-        NotificationManager mNotificationManager = (NotificationManager) getSystemService(
-                NOTIFICATION_SERVICE);
-        mNotificationManager.createNotificationChannel(new NotificationChannel(
-                NOTIFICATION_CHANNEL_ID, NOTIFICATION_CHANNEL_ID,
-                NotificationManager.IMPORTANCE_DEFAULT));
-        startForeground(1, new Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
+        final String CHANNEL_ID = "ToyVpn";
+        NotificationChannel channel;
+        channel = new NotificationChannel(CHANNEL_ID, CHANNEL_ID, NotificationManager.IMPORTANCE_DEFAULT);
+        NotificationManager mgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        mgr.createNotificationChannel(channel);
+        startForeground(1, new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_vpn)
                 .setContentText(getString(message))
                 .setContentIntent(mConfigureIntent)
