@@ -137,8 +137,10 @@ public class ToyVpnClient extends Activity {
         super.onSaveInstanceState(outState);
         int serverPortNum = 0, proxyPortNum = 0;
         try {
-            serverPortNum = Integer.parseInt(serverPort.getText().toString());
-            proxyPortNum = Integer.parseInt(proxyPort.getText().toString());
+            String str = serverPort.getText().toString();
+            serverPortNum = Integer.parseInt(str.length() > 0 ? str : "0");
+            str = proxyPort.getText().toString();
+            proxyPortNum = Integer.parseInt(str.length() > 0 ? str : "0");
         } catch (NumberFormatException e) {
             e.printStackTrace();
         }

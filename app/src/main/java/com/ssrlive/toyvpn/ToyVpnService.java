@@ -46,14 +46,14 @@ public class ToyVpnService extends VpnService {
 
     private Handler mHandler;
 
-    private static class Connection extends Pair<Thread, ParcelFileDescriptor> {
-        public Connection(Thread thread, ParcelFileDescriptor pfd) {
+    private static class ConnectionContext extends Pair<Thread, ParcelFileDescriptor> {
+        public ConnectionContext(Thread thread, ParcelFileDescriptor pfd) {
             super(thread, pfd);
         }
     }
 
     private final AtomicReference<Thread> mConnectingThread = new AtomicReference<>();
-    private final AtomicReference<Connection> mConnection = new AtomicReference<>();
+    private final AtomicReference<ConnectionContext> mConnection = new AtomicReference<>();
 
     private final AtomicInteger mNextConnectionId = new AtomicInteger(1);
 
@@ -61,6 +61,7 @@ public class ToyVpnService extends VpnService {
 
     @Override
     public void onCreate() {
+        Log.i(TAG, "onCreate");
         // The handler is only used to show messages.
         if (mHandler == null) {
             //noinspection deprecation
@@ -83,6 +84,7 @@ public class ToyVpnService extends VpnService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        Log.i(TAG, "onStartCommand");
         if (intent != null && ACTION_DISCONNECT.equals(intent.getAction())) {
             disconnect();
             return START_NOT_STICKY;
@@ -94,6 +96,7 @@ public class ToyVpnService extends VpnService {
 
     @Override
     public void onDestroy() {
+        Log.i(TAG, "onDestroy");
         disconnect();
     }
 
@@ -129,7 +132,7 @@ public class ToyVpnService extends VpnService {
             mHandler.sendEmptyMessage(R.string.connected);
 
             mConnectingThread.compareAndSet(thread, null);
-            setConnection(new Connection(thread, tunInterface));
+            setConnection(new ConnectionContext(thread, tunInterface));
         });
         thread.start();
     }
@@ -141,8 +144,8 @@ public class ToyVpnService extends VpnService {
         }
     }
 
-    private void setConnection(final Connection connection) {
-        final Connection oldConnection = mConnection.getAndSet(connection);
+    private void setConnection(final ConnectionContext connection) {
+        final ConnectionContext oldConnection = mConnection.getAndSet(connection);
         if (oldConnection != null) {
             try {
                 oldConnection.first.interrupt();
