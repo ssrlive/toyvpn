@@ -20,8 +20,6 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.res.Configuration;
-import android.util.Log;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.Bundle;
@@ -94,20 +92,24 @@ public class ToyVpnClient extends Activity {
             if (intent != null) {
                 startActivityForResult(intent, 0);
             } else {
-                onActivityResult(0, RESULT_OK, null);
+                doStartVpnService();
             }
         });
         findViewById(R.id.disconnect).setOnClickListener(v -> {
-            startService(getServiceIntent().setAction(ToyVpnService.ACTION_DISCONNECT));
+            startService(getVpnServiceIntent().setAction(ToyVpnService.ACTION_DISCONNECT));
         });
 
-        onRestoreInstanceState(savedInstanceState);
+        restoreDataFromPreferences();
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     @Override
     public void onRestoreInstanceState(Bundle savedInstanceState) {
         // super.onRestoreInstanceState(savedInstanceState);
+        restoreDataFromPreferences();
+    }
+
+    @TargetApi(Build.VERSION_CODES.O)
+    private void restoreDataFromPreferences() {
         serverAddress.setText(prefs.getString(Prefs.SERVER_ADDRESS, ""));
         int serverPortPrefValue = prefs.getInt(Prefs.SERVER_PORT, 0);
         serverPort.setText(String.valueOf(serverPortPrefValue == 0 ? "" : serverPortPrefValue));
@@ -172,11 +174,15 @@ public class ToyVpnClient extends Activity {
     @Override
     protected void onActivityResult(int request, int result, Intent data) {
         if (result == RESULT_OK) {
-            startService(getServiceIntent().setAction(ToyVpnService.ACTION_CONNECT));
+            doStartVpnService();
         }
     }
 
-    private Intent getServiceIntent() {
+    private void doStartVpnService() {
+        startService(getVpnServiceIntent().setAction(ToyVpnService.ACTION_CONNECT));
+    }
+
+    private Intent getVpnServiceIntent() {
         return new Intent(this, ToyVpnService.class);
     }
 }
