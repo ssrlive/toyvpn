@@ -132,17 +132,12 @@ public class ToyVpnClient extends Activity {
     @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        int serverPortNum;
+        int serverPortNum = 0, proxyPortNum = 0;
         try {
             serverPortNum = Integer.parseInt(serverPort.getText().toString());
-        } catch (NumberFormatException e) {
-            serverPortNum = 0;
-        }
-        int proxyPortNum;
-        try {
             proxyPortNum = Integer.parseInt(proxyPort.getText().toString());
         } catch (NumberFormatException e) {
-            proxyPortNum = 0;
+            e.printStackTrace();
         }
         final Set<String> packageSet =
                 Arrays.stream(packages.getText().toString().split(","))
