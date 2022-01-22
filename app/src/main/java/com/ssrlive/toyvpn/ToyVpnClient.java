@@ -61,14 +61,7 @@ public class ToyVpnClient extends Activity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        int orientation = this.getResources().getConfiguration().orientation;
-        if (orientation == Configuration.ORIENTATION_LANDSCAPE || orientation == Configuration.ORIENTATION_PORTRAIT) {
-            setContentView(R.layout.form);
-        } else {
-            Log.v("Tag", "Unknown orientation");
-            return;
-        }
+        setContentView(R.layout.form);
 
         serverAddress = findViewById(R.id.address);
         serverPort = findViewById(R.id.port);
