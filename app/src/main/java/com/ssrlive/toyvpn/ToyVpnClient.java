@@ -102,6 +102,14 @@ public class ToyVpnClient extends Activity {
         restoreDataFromPreferences();
     }
 
+    private void doStartVpnService() {
+        startService(getVpnServiceIntent().setAction(ToyVpnService.ACTION_CONNECT));
+    }
+
+    private Intent getVpnServiceIntent() {
+        return new Intent(this, ToyVpnService.class);
+    }
+
     @Override
     public void onRestoreInstanceState(Bundle savedInstanceState) {
         // super.onRestoreInstanceState(savedInstanceState);
@@ -176,13 +184,5 @@ public class ToyVpnClient extends Activity {
         if (result == RESULT_OK) {
             doStartVpnService();
         }
-    }
-
-    private void doStartVpnService() {
-        startService(getVpnServiceIntent().setAction(ToyVpnService.ACTION_CONNECT));
-    }
-
-    private Intent getVpnServiceIntent() {
-        return new Intent(this, ToyVpnService.class);
     }
 }
