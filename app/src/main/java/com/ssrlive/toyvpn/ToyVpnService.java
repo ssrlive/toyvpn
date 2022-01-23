@@ -46,14 +46,8 @@ public class ToyVpnService extends VpnService {
 
     private Handler mHandler;
 
-    private static class ConnectionContext extends Pair<Thread, ParcelFileDescriptor> {
-        public ConnectionContext(Thread thread, ParcelFileDescriptor pfd) {
-            super(thread, pfd);
-        }
-    }
-
-    private final AtomicReference<Thread> mConnectingThread = new AtomicReference<>();
-    private final AtomicReference<ConnectionContext> mConnection = new AtomicReference<>();
+    private final AtomicReference<Thread> mVpnThread = new AtomicReference<>();
+    private final AtomicReference<ParcelFileDescriptor> mFileDescriptor = new AtomicReference<>();
 
     private final AtomicInteger mNextConnectionId = new AtomicInteger(1);
 
@@ -124,31 +118,31 @@ public class ToyVpnService extends VpnService {
     private void startToyVpnRunnable(final ToyVpnRunnable connection) {
         // Replace any existing connecting thread with the  new one.
         final Thread thread = new Thread(connection, "ToyVpnThread");
-        saveConnectingThread(thread);
+        saveConnectingThread(thread, true);
 
         // Handler to mark as connected once onEstablish is called.
         connection.setConfigureIntent(mConfigureIntent);
         connection.setOnEstablishListener(tunInterface -> {
             mHandler.sendEmptyMessage(R.string.connected);
 
-            mConnectingThread.compareAndSet(thread, null);
-            saveConnectionContext(new ConnectionContext(thread, tunInterface));
+            saveConnectingThread(null, false);
+            saveFileDescriptor(tunInterface);
         });
         thread.start();
     }
 
-    private void saveConnectingThread(final Thread thread) {
-        final Thread oldThread = mConnectingThread.getAndSet(thread);
-        if (oldThread != null) {
+    private void saveConnectingThread(final Thread thread, boolean killOldThread) {
+        final Thread oldThread = mVpnThread.getAndSet(thread);
+        if ((oldThread != null) && killOldThread) {
             oldThread.interrupt();
         }
     }
 
-    private void saveConnectionContext(final ConnectionContext connection) {
-        final ConnectionContext oldConnection = mConnection.getAndSet(connection);
-        if (oldConnection != null) {
+    private void saveFileDescriptor(final ParcelFileDescriptor fd) {
+        final ParcelFileDescriptor oldFD = mFileDescriptor.getAndSet(fd);
+        if (oldFD != null) {
             try {
-                oldConnection.second.close();
+                oldFD.close();
             } catch (IOException e) {
                 Log.e(TAG, "Closing VPN interface", e);
             }
@@ -157,8 +151,8 @@ public class ToyVpnService extends VpnService {
 
     private void disconnect() {
         mHandler.sendEmptyMessage(R.string.disconnected);
-        saveConnectingThread(null);
-        saveConnectionContext(null);
+        saveConnectingThread(null, true);
+        saveFileDescriptor(null);
         stopForeground(true);
     }
 
