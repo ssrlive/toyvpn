@@ -116,12 +116,12 @@ public class ToyVpnService extends VpnService {
         final int port = prefs.getInt(ToyVpnClient.Prefs.SERVER_PORT, 0);
         final String proxyHost = prefs.getString(ToyVpnClient.Prefs.PROXY_HOSTNAME, "");
         final int proxyPort = prefs.getInt(ToyVpnClient.Prefs.PROXY_PORT, 0);
-        startConnectionWithRunnable(new ToyVpnRunnable(
+        startToyVpnRunnable(new ToyVpnRunnable(
                 this, mNextConnectionId.getAndIncrement(), server, port, secret,
                 proxyHost, proxyPort, allow, packages));
     }
 
-    private void startConnectionWithRunnable(final ToyVpnRunnable connection) {
+    private void startToyVpnRunnable(final ToyVpnRunnable connection) {
         // Replace any existing connecting thread with the  new one.
         final Thread thread = new Thread(connection, "ToyVpnThread");
         saveConnectingThread(thread);
@@ -148,7 +148,6 @@ public class ToyVpnService extends VpnService {
         final ConnectionContext oldConnection = mConnection.getAndSet(connection);
         if (oldConnection != null) {
             try {
-                oldConnection.first.interrupt();
                 oldConnection.second.close();
             } catch (IOException e) {
                 Log.e(TAG, "Closing VPN interface", e);
