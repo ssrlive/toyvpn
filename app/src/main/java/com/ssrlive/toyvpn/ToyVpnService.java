@@ -124,8 +124,6 @@ public class ToyVpnService extends VpnService {
         runnable.setConfigureIntent(mConfigureIntent);
         runnable.setOnEstablishListener(tunInterface -> {
             mHandler.sendEmptyMessage(R.string.connected);
-
-            saveConnectingThread(null, false);
             saveFileDescriptor(tunInterface);
         });
         thread.start();
