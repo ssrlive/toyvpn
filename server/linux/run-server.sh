@@ -27,16 +27,16 @@ function main() {
     echo 1 > /proc/sys/net/ipv4/ip_forward
     check_cmd_success $? 'echo 1 > /proc/sys/net/ipv4/ip_forward'
 
-    iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE
-    check_cmd_success $? 'iptables -t nat -A POSTROUTING -s 10.0.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE'
+    iptables -t nat -A POSTROUTING -s 10.10.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE
+    check_cmd_success $? 'iptables -t nat -A POSTROUTING -s 10.10.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE'
 
     ip tuntap add dev ${TUN_NETWORK_DEV} mode tun
     check_cmd_success $? 'ip tuntap add dev ${TUN_NETWORK_DEV} mode tun'
 
-    ifconfig ${TUN_NETWORK_DEV} 10.0.0.1 dstaddr 10.0.0.2 up
-    check_cmd_success $? 'ifconfig ${TUN_NETWORK_DEV} 10.0.0.1 dstaddr 10.0.0.2 up'
+    ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up
+    check_cmd_success $? 'ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up'
 
-    # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.0.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0
+    # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0
 }
 
 main $@
