@@ -29,7 +29,6 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
-import android.util.Pair;
 import android.widget.Toast;
 
 import java.io.IOException;
@@ -118,25 +117,25 @@ public class ToyVpnService extends VpnService {
     private void startToyVpnRunnable(final ToyVpnRunnable runnable) {
         // Replace any existing connecting thread with the  new one.
         final Thread thread = new Thread(runnable, "ToyVpnThread");
-        saveConnectingThread(thread, true);
+        storeConnectingThread(thread);
 
         // Handler to mark as connected once onEstablish is called.
         runnable.setConfigureIntent(mConfigureIntent);
         runnable.setOnEstablishListener(tunInterface -> {
             mHandler.sendEmptyMessage(R.string.connected);
-            saveFileDescriptor(tunInterface);
+            storeFileDescriptor(tunInterface);
         });
         thread.start();
     }
 
-    private void saveConnectingThread(final Thread thread, boolean killOldThread) {
+    private void storeConnectingThread(final Thread thread) {
         final Thread oldThread = mVpnThread.getAndSet(thread);
-        if ((oldThread != null) && killOldThread) {
+        if (oldThread != null) {
             oldThread.interrupt();
         }
     }
 
-    private void saveFileDescriptor(final ParcelFileDescriptor fd) {
+    private void storeFileDescriptor(final ParcelFileDescriptor fd) {
         final ParcelFileDescriptor oldFD = mFileDescriptor.getAndSet(fd);
         if (oldFD != null) {
             try {
@@ -149,8 +148,8 @@ public class ToyVpnService extends VpnService {
 
     private void disconnect() {
         mHandler.sendEmptyMessage(R.string.disconnected);
-        saveConnectingThread(null, true);
-        saveFileDescriptor(null);
+        storeConnectingThread(null);
+        storeFileDescriptor(null);
         stopForeground(true);
     }
 
