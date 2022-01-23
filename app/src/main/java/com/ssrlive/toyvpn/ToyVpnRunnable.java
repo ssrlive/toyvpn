@@ -227,6 +227,9 @@ public class ToyVpnRunnable implements Runnable {
                     if (packet.get(0) != 0) {
                         // Write the incoming packet to the output stream.
                         ifaceOut.write(packet.array(), 0, length);
+                    } else {
+                        // response to remote server with idle packet immediately.
+                        tunnel.write(packet);
                     }
                     packet.clear();
 
@@ -242,7 +245,7 @@ public class ToyVpnRunnable implements Runnable {
                     Thread.sleep(IDLE_INTERVAL_MS);
                     final long timeNow = System.currentTimeMillis();
 
-                    if (lastSendTime + KEEPALIVE_INTERVAL_MS <= timeNow) {
+                    if (lastSendTime + KEEPALIVE_INTERVAL_MS >= timeNow) {
                         // We are receiving for a long time but not sending.
                         // Send empty control messages.
                         packet.put((byte) 0).limit(1);
@@ -252,7 +255,7 @@ public class ToyVpnRunnable implements Runnable {
                         }
                         packet.clear();
                         lastSendTime = timeNow;
-                    } else if (lastReceiveTime + RECEIVE_TIMEOUT_MS <= timeNow) {
+                    } else if (lastReceiveTime + RECEIVE_TIMEOUT_MS >= timeNow) {
                         // We are sending for a long time but not receiving.
                         throw new IllegalStateException("Timed out");
                     }
