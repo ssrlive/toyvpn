@@ -179,8 +179,9 @@ public class ToyVpnRunnable implements Runnable {
             // writing. Here we put the tunnel into non-blocking mode.
             tunnel.configureBlocking(false);
 
-            // Authenticate and configure the virtual network interface.
-            iface = handshake(tunnel);
+            // Authenticate with server and configure the virtual network interface.
+            String parameters = handshakeServer(tunnel);
+            iface = configureVirtualInterface(parameters);
 
             // Now we are connected. Set the flag.
             connected = true;
@@ -273,7 +274,7 @@ public class ToyVpnRunnable implements Runnable {
         return connected;
     }
 
-    private ParcelFileDescriptor handshake(DatagramChannel tunnel)
+    private String handshakeServer(DatagramChannel tunnel)
             throws IOException, InterruptedException {
         // To build a secured tunnel, we should perform mutual authentication
         // and exchange session keys for encryption. To keep things simple in
@@ -303,14 +304,14 @@ public class ToyVpnRunnable implements Runnable {
             // byte is 0 as expected.
             int length = tunnel.read(packet);
             if (length > 0 && packet.get(0) == 0) {
-                return configure(new String(packet.array(), 1, length - 1, US_ASCII).trim());
+                return new String(packet.array(), 1, length - 1, US_ASCII).trim();
             }
         }
         throw new IOException("Timed out");
     }
 
     @TargetApi(Build.VERSION_CODES.Q)
-    private ParcelFileDescriptor configure(String parameters) throws IllegalArgumentException {
+    private ParcelFileDescriptor configureVirtualInterface(String parameters) throws IllegalArgumentException {
         // Configure a builder while parsing the parameters.
         VpnService.Builder builder = mService.new Builder();
         for (String parameter : parameters.split(" ")) {
