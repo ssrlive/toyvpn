@@ -207,10 +207,10 @@ public class ToyVpnRunnable implements Runnable {
                 // Assume that we did not make any progress in this iteration.
                 boolean idle = true;
 
-                // Read the outgoing packet from the input stream.
+                // Read the outgoing packet from the input stream (Virtual Interface).
                 int length = ifaceIn.read(packet.array());
                 if (length > 0) {
-                    // Write the outgoing packet to the tunnel.
+                    // Write the outgoing packet to the tunnel (server).
                     packet.limit(length);
                     tunnel.write(packet);
                     packet.clear();
@@ -220,12 +220,12 @@ public class ToyVpnRunnable implements Runnable {
                     lastReceiveTime = System.currentTimeMillis();
                 }
 
-                // Read the incoming packet from the tunnel.
+                // Read the incoming packet from the tunnel (server).
                 length = tunnel.read(packet);
                 if (length > 0) {
                     // Ignore control messages, which start with zero.
                     if (packet.get(0) != 0) {
-                        // Write the incoming packet to the output stream.
+                        // Write the incoming packet to the output stream (Virtual Interface).
                         ifaceOut.write(packet.array(), 0, length);
                     } else {
                         // response to remote server with idle packet immediately.
