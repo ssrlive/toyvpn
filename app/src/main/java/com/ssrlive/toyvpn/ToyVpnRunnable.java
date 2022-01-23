@@ -257,8 +257,10 @@ public class ToyVpnRunnable implements Runnable {
                     }
                 }
             }
-        } catch (SocketException e) {
+        } catch (IOException e) {
             Log.e(getTag(), "Cannot use socket", e);
+        } catch (IllegalStateException e) {
+            Log.e(getTag(), "Timed out", e);
         } finally {
             if (iface != null) {
                 try {
