@@ -115,14 +115,14 @@ public class ToyVpnService extends VpnService {
                 proxyHost, proxyPort, allow, packages));
     }
 
-    private void startToyVpnRunnable(final ToyVpnRunnable connection) {
+    private void startToyVpnRunnable(final ToyVpnRunnable runnable) {
         // Replace any existing connecting thread with the  new one.
-        final Thread thread = new Thread(connection, "ToyVpnThread");
+        final Thread thread = new Thread(runnable, "ToyVpnThread");
         saveConnectingThread(thread, true);
 
         // Handler to mark as connected once onEstablish is called.
-        connection.setConfigureIntent(mConfigureIntent);
-        connection.setOnEstablishListener(tunInterface -> {
+        runnable.setConfigureIntent(mConfigureIntent);
+        runnable.setOnEstablishListener(tunInterface -> {
             mHandler.sendEmptyMessage(R.string.connected);
 
             saveConnectingThread(null, false);
