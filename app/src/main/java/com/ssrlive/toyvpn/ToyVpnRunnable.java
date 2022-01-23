@@ -187,10 +187,10 @@ public class ToyVpnRunnable implements Runnable {
             connected = true;
 
             // Packets to be sent are queued in this input stream.
-            FileInputStream in = new FileInputStream(iface.getFileDescriptor());
+            FileInputStream ifaceIn = new FileInputStream(iface.getFileDescriptor());
 
             // Packets received need to be written to this output stream.
-            FileOutputStream out = new FileOutputStream(iface.getFileDescriptor());
+            FileOutputStream ifaceOut = new FileOutputStream(iface.getFileDescriptor());
 
             // Allocate the buffer for a single packet.
             ByteBuffer packet = ByteBuffer.allocate(MAX_PACKET_SIZE);
@@ -208,7 +208,7 @@ public class ToyVpnRunnable implements Runnable {
                 boolean idle = true;
 
                 // Read the outgoing packet from the input stream.
-                int length = in.read(packet.array());
+                int length = ifaceIn.read(packet.array());
                 if (length > 0) {
                     // Write the outgoing packet to the tunnel.
                     packet.limit(length);
@@ -226,7 +226,7 @@ public class ToyVpnRunnable implements Runnable {
                     // Ignore control messages, which start with zero.
                     if (packet.get(0) != 0) {
                         // Write the incoming packet to the output stream.
-                        out.write(packet.array(), 0, length);
+                        ifaceOut.write(packet.array(), 0, length);
                     }
                     packet.clear();
 
