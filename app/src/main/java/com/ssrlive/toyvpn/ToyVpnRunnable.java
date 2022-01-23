@@ -39,7 +39,7 @@ import java.nio.channels.DatagramChannel;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-public class ToyVpnConnection implements Runnable {
+public class ToyVpnRunnable implements Runnable {
     /**
      * Callback interface to let the {@link ToyVpnService} know about new connections
      * and update the foreground notification with connection status.
@@ -97,10 +97,10 @@ public class ToyVpnConnection implements Runnable {
     private final boolean mAllow;
     private final Set<String> mPackages;
 
-    public ToyVpnConnection(final VpnService service, final int connectionId,
-            final String serverName, final int serverPort, final byte[] sharedSecret,
-            final String proxyHostName, final int proxyHostPort, boolean allow,
-            final Set<String> packages) {
+    public ToyVpnRunnable(final VpnService service, final int connectionId,
+                          final String serverName, final int serverPort, final byte[] sharedSecret,
+                          final String proxyHostName, final int proxyHostPort, boolean allow,
+                          final Set<String> packages) {
         mService = service;
         mConnectionId = connectionId;
 
@@ -364,6 +364,6 @@ public class ToyVpnConnection implements Runnable {
     }
 
     private String getTag() {
-        return ToyVpnConnection.class.getSimpleName() + "[" + mConnectionId + "]";
+        return ToyVpnRunnable.class.getSimpleName() + "[" + mConnectionId + "]";
     }
 }

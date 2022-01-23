@@ -116,15 +116,15 @@ public class ToyVpnService extends VpnService {
         final int port = prefs.getInt(ToyVpnClient.Prefs.SERVER_PORT, 0);
         final String proxyHost = prefs.getString(ToyVpnClient.Prefs.PROXY_HOSTNAME, "");
         final int proxyPort = prefs.getInt(ToyVpnClient.Prefs.PROXY_PORT, 0);
-        startConnection(new ToyVpnConnection(
+        startConnectionWithRunnable(new ToyVpnRunnable(
                 this, mNextConnectionId.getAndIncrement(), server, port, secret,
                 proxyHost, proxyPort, allow, packages));
     }
 
-    private void startConnection(final ToyVpnConnection connection) {
+    private void startConnectionWithRunnable(final ToyVpnRunnable connection) {
         // Replace any existing connecting thread with the  new one.
         final Thread thread = new Thread(connection, "ToyVpnThread");
-        setConnectingThread(thread);
+        saveConnectingThread(thread);
 
         // Handler to mark as connected once onEstablish is called.
         connection.setConfigureIntent(mConfigureIntent);
@@ -132,19 +132,19 @@ public class ToyVpnService extends VpnService {
             mHandler.sendEmptyMessage(R.string.connected);
 
             mConnectingThread.compareAndSet(thread, null);
-            setConnection(new ConnectionContext(thread, tunInterface));
+            saveConnectionContext(new ConnectionContext(thread, tunInterface));
         });
         thread.start();
     }
 
-    private void setConnectingThread(final Thread thread) {
+    private void saveConnectingThread(final Thread thread) {
         final Thread oldThread = mConnectingThread.getAndSet(thread);
         if (oldThread != null) {
             oldThread.interrupt();
         }
     }
 
-    private void setConnection(final ConnectionContext connection) {
+    private void saveConnectionContext(final ConnectionContext connection) {
         final ConnectionContext oldConnection = mConnection.getAndSet(connection);
         if (oldConnection != null) {
             try {
@@ -158,8 +158,8 @@ public class ToyVpnService extends VpnService {
 
     private void disconnect() {
         mHandler.sendEmptyMessage(R.string.disconnected);
-        setConnectingThread(null);
-        setConnection(null);
+        saveConnectingThread(null);
+        saveConnectionContext(null);
         stopForeground(true);
     }
 
