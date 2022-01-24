@@ -276,7 +276,6 @@ public class ToyVpnRunnable implements Runnable {
                     final long timeNow = System.currentTimeMillis();
 
                     if (lastReadServerTime + RECEIVE_TIMEOUT_MS <= timeNow) {
-                        success = false;
                         // We are sending for a long time but not receiving.
                         throw new IOException("Timed out");
                     }
