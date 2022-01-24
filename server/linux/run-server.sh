@@ -36,7 +36,7 @@ function main() {
     ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up
     check_cmd_success $? 'ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up'
 
-    # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0
+    # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0 &
 }
 
 main $@

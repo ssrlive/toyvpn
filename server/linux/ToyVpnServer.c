@@ -54,7 +54,7 @@
 // ifconfig tun0 10.10.0.1 dstaddr 10.10.0.2 up
 //
 // # Create a server on port 8000 with shared secret "test".
-// ./ToyVpnServer tun0 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0
+// ./ToyVpnServer tun0 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0 &
 //
 // This program only handles a session at a time. To allow multiple sessions,
 // multiple servers can be created on the same port, but each of them requires
