@@ -46,8 +46,6 @@ public class ToyVpnService extends VpnService {
     private Handler mHandler;
 
     private final AtomicReference<Thread> mVpnThread = new AtomicReference<>();
-    private final AtomicReference<ParcelFileDescriptor> mFileDescriptor = new AtomicReference<>();
-
     private final AtomicInteger mNextConnectionId = new AtomicInteger(1);
 
     private PendingIntent mConfigureIntent;
@@ -77,8 +75,9 @@ public class ToyVpnService extends VpnService {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Log.i(TAG, "onStartCommand");
-        if (intent != null && ACTION_DISCONNECT.equals(intent.getAction())) {
+        String action = intent.getAction();
+        Log.i(TAG, "onStartCommand with action " + action);
+        if (ACTION_DISCONNECT.equals(action)) {
             disconnect();
             return START_NOT_STICKY;
         } else {
@@ -123,7 +122,6 @@ public class ToyVpnService extends VpnService {
         runnable.setConfigureIntent(mConfigureIntent);
         runnable.setOnEstablishListener(tunInterface -> {
             mHandler.sendEmptyMessage(R.string.connected);
-            storeFileDescriptor(tunInterface);
         });
         thread.start();
     }
@@ -135,21 +133,9 @@ public class ToyVpnService extends VpnService {
         }
     }
 
-    private void storeFileDescriptor(final ParcelFileDescriptor fd) {
-        final ParcelFileDescriptor oldFD = mFileDescriptor.getAndSet(fd);
-        if (oldFD != null) {
-            try {
-                oldFD.close();
-            } catch (IOException e) {
-                Log.e(TAG, "Closing VPN interface", e);
-            }
-        }
-    }
-
     private void disconnect() {
         mHandler.sendEmptyMessage(R.string.disconnected);
         storeConnectingThread(null);
-        storeFileDescriptor(null);
         stopForeground(true);
     }
 
