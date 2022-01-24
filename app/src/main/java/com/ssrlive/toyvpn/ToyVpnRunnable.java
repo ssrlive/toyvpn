@@ -44,8 +44,12 @@ public class ToyVpnRunnable implements Runnable {
      * Callback interface to let the {@link ToyVpnService} know about new connections
      * and update the foreground notification with connection status.
      */
-    public interface OnEstablishListener {
+    public interface OnConnectListener {
+        void onTaskLaunch();
+        void onConnecting();
         void onEstablish(ParcelFileDescriptor tunInterface);
+        void onDisconnected();
+        void onTaskTerminate();
     }
 
     /** Maximum packet size is constrained by the MTU, which is given as a signed short. */
@@ -62,7 +66,7 @@ public class ToyVpnRunnable implements Runnable {
     private static final long KEEPALIVE_INTERVAL_MS = TimeUnit.SECONDS.toMillis(15);
 
     /** Time to wait without receiving any response before assuming the server is gone. */
-    private static final long RECEIVE_TIMEOUT_MS = TimeUnit.SECONDS.toMillis(20);
+    private static final long RECEIVE_TIMEOUT_MS = KEEPALIVE_INTERVAL_MS * 2; // TimeUnit.SECONDS.toMillis(20);
 
     /**
      * Time between polling the VPN interface for new traffic, since it's non-blocking.
@@ -87,7 +91,7 @@ public class ToyVpnRunnable implements Runnable {
     private final byte[] mSharedSecret;
 
     private PendingIntent mConfigureIntent;
-    private OnEstablishListener mOnEstablishListener;
+    private OnConnectListener mOnConnectListener;
 
     // Proxy settings
     private String mProxyHostName;
@@ -126,14 +130,19 @@ public class ToyVpnRunnable implements Runnable {
         mConfigureIntent = intent;
     }
 
-    public void setOnEstablishListener(OnEstablishListener listener) {
-        mOnEstablishListener = listener;
+    public void setOnConnectListener(OnConnectListener listener) {
+        mOnConnectListener = listener;
     }
 
     @Override
     public void run() {
         try {
-            Log.i(getTag(), "Starting");
+            Log.i(getTag(), "Thread starting");
+            synchronized (mService) {
+                if (mOnConnectListener != null) {
+                    mOnConnectListener.onTaskLaunch();
+                }
+            }
 
             // If anything needs to be obtained using the network, get it now.
             // This greatly reduces the complexity of seamless handover, which
@@ -157,6 +166,13 @@ public class ToyVpnRunnable implements Runnable {
             Log.i(getTag(), "Giving up");
         } catch (InterruptedException | IllegalArgumentException | IllegalStateException e) {
             Log.e(getTag(), "Connection failed, exiting", e);
+        } finally {
+            Log.i(getTag(), "Thread dying");
+            synchronized (mService) {
+                if (mOnConnectListener != null) {
+                    mOnConnectListener.onTaskTerminate();
+                }
+            }
         }
     }
 
@@ -166,6 +182,12 @@ public class ToyVpnRunnable implements Runnable {
         ParcelFileDescriptor iface = null;
         boolean success = false;
         try {
+            synchronized (mService) {
+                if (mOnConnectListener != null) {
+                    mOnConnectListener.onConnecting();
+                }
+            }
+
             // Create a DatagramChannel as the VPN tunnel.
             tunnel = DatagramChannel.open();
 
@@ -185,6 +207,12 @@ public class ToyVpnRunnable implements Runnable {
             String parameters = handshakeServer(tunnel);
             iface = configureVirtualInterface(parameters);
 
+            synchronized (mService) {
+                if (mOnConnectListener != null) {
+                    mOnConnectListener.onEstablish(iface);
+                }
+            }
+
             // Now we are connected. Set the flag.
             success = true;
 
@@ -200,8 +228,8 @@ public class ToyVpnRunnable implements Runnable {
             // Timeouts:
             //   - when data has not been sent in a while, send empty keepalive messages.
             //   - when data has not been received in a while, assume the connection is broken.
-            long lastSendTime = System.currentTimeMillis();
-            long lastReceiveTime = System.currentTimeMillis();
+            long lastReadServerTime = System.currentTimeMillis();
+            long lastReadVirtualInterfaceTime = System.currentTimeMillis();
 
             // We keep forwarding packets till something goes wrong.
             //noinspection InfiniteLoopStatement
@@ -219,7 +247,7 @@ public class ToyVpnRunnable implements Runnable {
 
                     // There might be more outgoing packets.
                     idle = false;
-                    lastReceiveTime = System.currentTimeMillis();
+                    lastReadVirtualInterfaceTime = System.currentTimeMillis();
                 }
 
                 // Read the incoming packet from the tunnel (server).
@@ -237,7 +265,7 @@ public class ToyVpnRunnable implements Runnable {
 
                     // There might be more incoming packets.
                     idle = false;
-                    lastSendTime = System.currentTimeMillis();
+                    lastReadServerTime = System.currentTimeMillis();
                 }
 
                 // If we are idle or waiting for the network, sleep for a
@@ -247,7 +275,13 @@ public class ToyVpnRunnable implements Runnable {
                     Thread.sleep(IDLE_INTERVAL_MS);
                     final long timeNow = System.currentTimeMillis();
 
-                    if (lastSendTime + KEEPALIVE_INTERVAL_MS >= timeNow) {
+                    if (lastReadServerTime + RECEIVE_TIMEOUT_MS <= timeNow) {
+                        success = false;
+                        // We are sending for a long time but not receiving.
+                        throw new IOException("Timed out");
+                    }
+
+                    if (lastReadServerTime + KEEPALIVE_INTERVAL_MS <= timeNow) {
                         // We are receiving for a long time but not sending.
                         // Send empty control messages.
                         packet.put((byte) 0).limit(1);
@@ -256,17 +290,19 @@ public class ToyVpnRunnable implements Runnable {
                             tunnel.write(packet);
                         }
                         packet.clear();
-                        lastSendTime = timeNow;
-                    } else if (lastReceiveTime + RECEIVE_TIMEOUT_MS >= timeNow) {
-                        success = false;
-                        // We are sending for a long time but not receiving.
-                        throw new IllegalStateException("Timed out");
                     }
                 }
             }
         } catch (IOException e) {
             Log.e(getTag(), "Cannot use socket", e);
         } finally {
+
+            synchronized (mService) {
+                if (mOnConnectListener != null) {
+                    mOnConnectListener.onDisconnected();
+                }
+            }
+
             try {
                 if (iface != null) {
                     iface.close();
@@ -364,13 +400,7 @@ public class ToyVpnRunnable implements Runnable {
         }
 
         // Create a new interface using the builder and save the parameters.
-        final ParcelFileDescriptor vpnInterface;
-        synchronized (mService) {
-            vpnInterface = builder.establish();
-            if (mOnEstablishListener != null) {
-                mOnEstablishListener.onEstablish(vpnInterface);
-            }
-        }
+        final ParcelFileDescriptor vpnInterface = builder.establish();
         Log.i(getTag(), "New interface: " + vpnInterface + " (" + parameters + ")");
         return vpnInterface;
     }

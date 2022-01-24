@@ -60,8 +60,12 @@ public class ToyVpnService extends VpnService {
                 @Override
                 public boolean handleMessage(Message msg) {
                     Toast.makeText(ToyVpnService.this, msg.what, Toast.LENGTH_SHORT).show();
-                    if (msg.what != R.string.disconnected) {
+                    if (msg.what != R.string.ending) {
+                        // Become a foreground service. Background services can be VPN services too, but they can
+                        // be killed by background check before getting a chance to receive onRevoke().
                         updateForegroundNotification(msg.what);
+                    } else {
+                        stopForeground(true);
                     }
                     return true;
                 }
@@ -93,11 +97,6 @@ public class ToyVpnService extends VpnService {
     }
 
     private void connect() {
-        // Become a foreground service. Background services can be VPN services too, but they can
-        // be killed by background check before getting a chance to receive onRevoke().
-        updateForegroundNotification(R.string.connecting);
-        mHandler.sendEmptyMessage(R.string.connecting);
-
         // Extract information from the shared preferences.
         final SharedPreferences prefs = getSharedPreferences(ToyVpnClient.Prefs.NAME, MODE_PRIVATE);
         final String server = prefs.getString(ToyVpnClient.Prefs.SERVER_ADDRESS, "");
@@ -120,9 +119,33 @@ public class ToyVpnService extends VpnService {
 
         // Handler to mark as connected once onEstablish is called.
         runnable.setConfigureIntent(mConfigureIntent);
-        runnable.setOnEstablishListener(tunInterface -> {
-            mHandler.sendEmptyMessage(R.string.connected);
-        });
+        runnable.setOnConnectListener(
+                new ToyVpnRunnable.OnConnectListener() {
+                    @Override
+                    public void onTaskLaunch() {
+                        mHandler.sendEmptyMessage(R.string.launching);
+                    }
+
+                    @Override
+                    public void onConnecting() {
+                        mHandler.sendEmptyMessage(R.string.connecting);
+                    }
+
+                    @Override
+                    public void onEstablish(ParcelFileDescriptor tunInterface) {
+                        mHandler.sendEmptyMessage(R.string.connected);
+                    }
+
+                    @Override
+                    public void onDisconnected() {
+                        mHandler.sendEmptyMessage(R.string.disconnected);
+                    }
+
+                    @Override
+                    public void onTaskTerminate() {
+                        mHandler.sendEmptyMessage(R.string.ending);
+                    }
+                });
         thread.start();
     }
 
@@ -134,9 +157,7 @@ public class ToyVpnService extends VpnService {
     }
 
     private void disconnect() {
-        mHandler.sendEmptyMessage(R.string.disconnected);
         storeConnectingThread(null);
-        stopForeground(true);
     }
 
     @TargetApi(Build.VERSION_CODES.O)

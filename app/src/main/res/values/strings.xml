@@ -30,9 +30,11 @@
     <string name="allowed">Allow</string>
     <string name="disallowed">Disallow</string>
 
+    <string name="launching">ToyVPN is launching...</string>
     <string name="connecting">ToyVPN is connecting...</string>
     <string name="connected">ToyVPN is connected!</string>
     <string name="disconnected">ToyVPN is disconnected!</string>
+    <string name="ending">ToyVPN is ending</string>
     <string name="incomplete_proxy_settings">
         Incomplete proxy settings. For HTTP proxy we require both hostname and port settings.
     </string>
