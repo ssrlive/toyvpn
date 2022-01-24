@@ -143,7 +143,7 @@ public class ToyVpnRunnable implements Runnable {
 
             // We try to create the tunnel several times.
             // TODO: The better way is to work with ConnectivityManager, trying only when the
-            // network is available.
+            //       network is available.
             // Here we just use a counter to keep things simple.
             for (int attempt = 0; attempt < 10; ++attempt) {
                 // Reset the counter if we were connected.
@@ -155,17 +155,19 @@ public class ToyVpnRunnable implements Runnable {
                 Thread.sleep(3000);
             }
             Log.i(getTag(), "Giving up");
-        } catch (IOException | InterruptedException | IllegalArgumentException e) {
+        } catch (InterruptedException | IllegalArgumentException | IllegalStateException e) {
             Log.e(getTag(), "Connection failed, exiting", e);
         }
     }
 
     private boolean run(SocketAddress server)
-            throws IOException, InterruptedException, IllegalArgumentException {
+            throws InterruptedException, IllegalArgumentException, IllegalStateException {
+        DatagramChannel tunnel = null;
         ParcelFileDescriptor iface = null;
-        boolean connected = false;
-        // Create a DatagramChannel as the VPN tunnel.
-        try (DatagramChannel tunnel = DatagramChannel.open()) {
+        boolean success = false;
+        try {
+            // Create a DatagramChannel as the VPN tunnel.
+            tunnel = DatagramChannel.open();
 
             // Protect the tunnel before connecting to avoid loopback.
             if (!mService.protect(tunnel.socket())) {
@@ -184,7 +186,7 @@ public class ToyVpnRunnable implements Runnable {
             iface = configureVirtualInterface(parameters);
 
             // Now we are connected. Set the flag.
-            connected = true;
+            success = true;
 
             // Packets to be sent are queued in this input stream.
             FileInputStream ifaceIn = new FileInputStream(iface.getFileDescriptor());
@@ -256,6 +258,7 @@ public class ToyVpnRunnable implements Runnable {
                         packet.clear();
                         lastSendTime = timeNow;
                     } else if (lastReceiveTime + RECEIVE_TIMEOUT_MS >= timeNow) {
+                        success = false;
                         // We are sending for a long time but not receiving.
                         throw new IllegalStateException("Timed out");
                     }
@@ -263,18 +266,20 @@ public class ToyVpnRunnable implements Runnable {
             }
         } catch (IOException e) {
             Log.e(getTag(), "Cannot use socket", e);
-        } catch (IllegalStateException e) {
-            Log.e(getTag(), "Timed out", e);
         } finally {
-            if (iface != null) {
-                try {
+            try {
+                if (iface != null) {
                     iface.close();
-                } catch (IOException e) {
-                    Log.e(getTag(), "Unable to close interface", e);
                 }
+                if (tunnel != null) {
+                    tunnel.disconnect();
+                    tunnel.close();
+                }
+            } catch (Exception e) {
+                Log.e(getTag(), "Unable to close interface", e);
             }
         }
-        return connected;
+        return success;
     }
 
     private String handshakeServer(DatagramChannel tunnel)
@@ -314,7 +319,8 @@ public class ToyVpnRunnable implements Runnable {
     }
 
     @TargetApi(Build.VERSION_CODES.Q)
-    private ParcelFileDescriptor configureVirtualInterface(String parameters) throws IllegalArgumentException {
+    private ParcelFileDescriptor configureVirtualInterface(String parameters)
+            throws IllegalArgumentException {
         // Configure a builder while parsing the parameters.
         VpnService.Builder builder = mService.new Builder();
         for (String parameter : parameters.split(" ")) {
@@ -341,9 +347,6 @@ public class ToyVpnRunnable implements Runnable {
                 throw new IllegalArgumentException("Bad parameter: " + parameter);
             }
         }
-
-        // Create a new interface using the builder and save the parameters.
-        final ParcelFileDescriptor vpnInterface;
         for (String packageName : mPackages) {
             try {
                 if (mAllow) {
@@ -359,6 +362,9 @@ public class ToyVpnRunnable implements Runnable {
         if (!TextUtils.isEmpty(mProxyHostName)) {
             builder.setHttpProxy(ProxyInfo.buildDirectProxy(mProxyHostName, mProxyHostPort));
         }
+
+        // Create a new interface using the builder and save the parameters.
+        final ParcelFileDescriptor vpnInterface;
         synchronized (mService) {
             vpnInterface = builder.establish();
             if (mOnEstablishListener != null) {
