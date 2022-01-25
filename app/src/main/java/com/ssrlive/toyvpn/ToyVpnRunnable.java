@@ -45,11 +45,10 @@ public class ToyVpnRunnable implements Runnable {
      * and update the foreground notification with connection status.
      */
     public interface OnConnectListener {
-        void onTaskLaunch();
-        void onConnecting();
-        void onEstablish(ParcelFileDescriptor tunInterface);
-        void onDisconnected();
-        void onTaskTerminate();
+        public enum Stage {
+            taskLaunch, connecting, establish, disconnected, taskTerminate;
+        }
+        void onConnectStage(Stage stage);
     }
 
     /** Maximum packet size is constrained by the MTU, which is given as a signed short. */
@@ -140,7 +139,7 @@ public class ToyVpnRunnable implements Runnable {
             Log.i(getTag(), "Thread starting");
             synchronized (mService) {
                 if (mOnConnectListener != null) {
-                    mOnConnectListener.onTaskLaunch();
+                    mOnConnectListener.onConnectStage(OnConnectListener.Stage.taskLaunch);
                 }
             }
 
@@ -170,7 +169,7 @@ public class ToyVpnRunnable implements Runnable {
             Log.i(getTag(), "Thread dying");
             synchronized (mService) {
                 if (mOnConnectListener != null) {
-                    mOnConnectListener.onTaskTerminate();
+                    mOnConnectListener.onConnectStage(OnConnectListener.Stage.taskTerminate);
                 }
             }
         }
@@ -184,7 +183,7 @@ public class ToyVpnRunnable implements Runnable {
         try {
             synchronized (mService) {
                 if (mOnConnectListener != null) {
-                    mOnConnectListener.onConnecting();
+                    mOnConnectListener.onConnectStage(OnConnectListener.Stage.connecting);
                 }
             }
 
@@ -206,10 +205,11 @@ public class ToyVpnRunnable implements Runnable {
             // Authenticate with server and configure the virtual network interface.
             String parameters = handshakeServer(tunnel);
             iface = configureVirtualInterface(parameters);
+            Log.i(getTag(), "New interface: " + iface + " (" + parameters + ")");
 
             synchronized (mService) {
                 if (mOnConnectListener != null) {
-                    mOnConnectListener.onEstablish(iface);
+                    mOnConnectListener.onConnectStage(OnConnectListener.Stage.establish);
                 }
             }
 
@@ -298,7 +298,7 @@ public class ToyVpnRunnable implements Runnable {
 
             synchronized (mService) {
                 if (mOnConnectListener != null) {
-                    mOnConnectListener.onDisconnected();
+                    mOnConnectListener.onConnectStage(OnConnectListener.Stage.disconnected);
                 }
             }
 
@@ -399,9 +399,7 @@ public class ToyVpnRunnable implements Runnable {
         }
 
         // Create a new interface using the builder and save the parameters.
-        final ParcelFileDescriptor vpnInterface = builder.establish();
-        Log.i(getTag(), "New interface: " + vpnInterface + " (" + parameters + ")");
-        return vpnInterface;
+        return builder.establish();
     }
 
     private String getTag() {

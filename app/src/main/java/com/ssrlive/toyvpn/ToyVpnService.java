@@ -122,28 +122,24 @@ public class ToyVpnService extends VpnService {
         runnable.setOnConnectListener(
                 new ToyVpnRunnable.OnConnectListener() {
                     @Override
-                    public void onTaskLaunch() {
-                        mHandler.sendEmptyMessage(R.string.launching);
-                    }
-
-                    @Override
-                    public void onConnecting() {
-                        mHandler.sendEmptyMessage(R.string.connecting);
-                    }
-
-                    @Override
-                    public void onEstablish(ParcelFileDescriptor tunInterface) {
-                        mHandler.sendEmptyMessage(R.string.connected);
-                    }
-
-                    @Override
-                    public void onDisconnected() {
-                        mHandler.sendEmptyMessage(R.string.disconnected);
-                    }
-
-                    @Override
-                    public void onTaskTerminate() {
-                        mHandler.sendEmptyMessage(R.string.ending);
+                    public void onConnectStage(Stage stage) {
+                        switch (stage) {
+                            case taskLaunch:
+                                mHandler.sendEmptyMessage(R.string.launching);
+                                break;
+                            case connecting:
+                                mHandler.sendEmptyMessage(R.string.connecting);
+                                break;
+                            case establish:
+                                mHandler.sendEmptyMessage(R.string.connected);
+                                break;
+                            case disconnected:
+                                mHandler.sendEmptyMessage(R.string.disconnected);
+                                break;
+                            case taskTerminate:
+                                mHandler.sendEmptyMessage(R.string.ending);
+                                break;
+                        }
                     }
                 });
         thread.start();
