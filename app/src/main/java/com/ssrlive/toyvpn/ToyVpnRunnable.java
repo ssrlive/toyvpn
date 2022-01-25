@@ -65,7 +65,7 @@ public class ToyVpnRunnable implements Runnable {
     private static final long KEEPALIVE_INTERVAL_MS = TimeUnit.SECONDS.toMillis(15);
 
     /** Time to wait without receiving any response before assuming the server is gone. */
-    private static final long RECEIVE_TIMEOUT_MS = KEEPALIVE_INTERVAL_MS * 3; // TimeUnit.SECONDS.toMillis(20);
+    private static final long RECEIVE_TIMEOUT_MS = KEEPALIVE_INTERVAL_MS * 3;
 
     /**
      * Time between polling the VPN interface for new traffic, since it's non-blocking.
