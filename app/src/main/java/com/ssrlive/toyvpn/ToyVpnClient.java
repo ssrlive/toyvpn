@@ -29,6 +29,7 @@ import android.widget.Toast;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -55,7 +56,6 @@ public class ToyVpnClient extends Activity {
 
     SharedPreferences prefs;
 
-    @TargetApi(Build.VERSION_CODES.O)
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -79,13 +79,15 @@ public class ToyVpnClient extends Activity {
                 return;
             }
 
-            final Set<String> packageSet =
-                    Arrays.stream(packages.getText().toString().split(","))
-                            .map(String::trim)
-                            .filter(s -> !s.isEmpty())
-                            .collect(Collectors.toSet());
-            if (!checkPackages(packageSet)) {
-                return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                final Set<String> packageSet =
+                        Arrays.stream(packages.getText().toString().split(","))
+                                .map(String::trim)
+                                .filter(s -> !s.isEmpty())
+                                .collect(Collectors.toSet());
+                if (!checkPackages(packageSet)) {
+                    return;
+                }
             }
 
             Intent intent = VpnService.prepare(ToyVpnClient.this);
@@ -116,7 +118,6 @@ public class ToyVpnClient extends Activity {
         restoreDataFromPreferences();
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private void restoreDataFromPreferences() {
         serverAddress.setText(prefs.getString(Prefs.SERVER_ADDRESS, ""));
         int serverPortPrefValue = prefs.getInt(Prefs.SERVER_PORT, 0);
@@ -127,11 +128,12 @@ public class ToyVpnClient extends Activity {
         proxyPort.setText(proxyPortPrefValue == 0 ? "" : String.valueOf(proxyPortPrefValue));
 
         allowed.setChecked(prefs.getBoolean(Prefs.ALLOW, true));
-        packages.setText(String.join(", ", prefs.getStringSet(
-                Prefs.PACKAGES, Collections.emptySet())));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packages.setText(String.join(", ", prefs.getStringSet(
+                    Prefs.PACKAGES, Collections.emptySet())));
+        }
     }
 
-    @TargetApi(Build.VERSION_CODES.N)
     @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
@@ -144,11 +146,13 @@ public class ToyVpnClient extends Activity {
         } catch (NumberFormatException e) {
             e.printStackTrace();
         }
-        final Set<String> packageSet =
-                Arrays.stream(packages.getText().toString().split(","))
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .collect(Collectors.toSet());
+        Set<String> packageSet = new HashSet<String>();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageSet = Arrays.stream(packages.getText().toString().split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toSet());
+        }
         prefs.edit()
                 .putString(Prefs.SERVER_ADDRESS, serverAddress.getText().toString())
                 .putInt(Prefs.SERVER_PORT, serverPortNum)

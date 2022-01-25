@@ -353,7 +353,6 @@ public class ToyVpnRunnable implements Runnable {
         throw new IOException("Timed out");
     }
 
-    @TargetApi(Build.VERSION_CODES.Q)
     private ParcelFileDescriptor configureVirtualInterface(String parameters)
             throws IllegalArgumentException {
         // Configure a builder while parsing the parameters.
@@ -395,7 +394,9 @@ public class ToyVpnRunnable implements Runnable {
         }
         builder.setSession(mServerName).setConfigureIntent(mConfigureIntent);
         if (!TextUtils.isEmpty(mProxyHostName)) {
-            builder.setHttpProxy(ProxyInfo.buildDirectProxy(mProxyHostName, mProxyHostPort));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                builder.setHttpProxy(ProxyInfo.buildDirectProxy(mProxyHostName, mProxyHostPort));
+            }
         }
 
         // Create a new interface using the builder and save the parameters.

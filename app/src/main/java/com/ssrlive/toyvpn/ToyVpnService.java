@@ -156,17 +156,27 @@ public class ToyVpnService extends VpnService {
         storeConnectingThread(null);
     }
 
-    @TargetApi(Build.VERSION_CODES.O)
     private void updateForegroundNotification(final int message) {
         final String CHANNEL_ID = "ToyVpn";
-        NotificationChannel channel;
-        channel = new NotificationChannel(CHANNEL_ID, CHANNEL_ID, NotificationManager.IMPORTANCE_DEFAULT);
-        NotificationManager mgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-        mgr.createNotificationChannel(channel);
-        startForeground(1, new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_vpn)
-                .setContentText(getString(message))
-                .setContentIntent(mConfigureIntent)
-                .build());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel;
+            channel = new NotificationChannel(CHANNEL_ID, CHANNEL_ID, NotificationManager.IMPORTANCE_DEFAULT);
+            NotificationManager mgr = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            mgr.createNotificationChannel(channel);
+            startForeground(1, new Notification.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_vpn)
+                    .setContentText(getString(message))
+                    .setContentIntent(mConfigureIntent)
+                    .build());
+        } else {
+            startForeground(1, new Notification.Builder(this)
+                    .setSmallIcon(R.drawable.ic_vpn)
+                    .setContentText(getString(message))
+                    .setContentIntent(mConfigureIntent)
+                    .setAutoCancel(false)
+                    .setTicker("Foreground Service Start")
+                    .setContentTitle(getString(R.string.app))
+                    .build());
+        }
     }
 }
