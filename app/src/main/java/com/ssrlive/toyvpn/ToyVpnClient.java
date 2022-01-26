@@ -73,6 +73,8 @@ public class ToyVpnClient extends Activity {
         prefs = getSharedPreferences(Prefs.NAME, MODE_PRIVATE);
 
         findViewById(R.id.connect).setOnClickListener(v -> {
+            saveDataToPreferences();
+
             String sProxyHost = proxyHost.getText().toString();
             String sProxyPort = proxyPort.getText().toString();
             if (!checkProxyConfigs(sProxyHost, sProxyPort)) {
@@ -137,6 +139,10 @@ public class ToyVpnClient extends Activity {
     @Override
     public void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
+        saveDataToPreferences();
+    }
+
+    private void saveDataToPreferences() {
         int serverPortNum = 0, proxyPortNum = 0;
         try {
             String str = serverPort.getText().toString();
