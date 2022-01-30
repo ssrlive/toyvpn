@@ -1,5 +1,9 @@
 apply plugin: 'com.android.application'
 
+ext {
+    appBinaryName = "toyvpn"
+}
+
 android {
     compileSdkVersion 31
     buildToolsVersion "31.0.0"
@@ -9,12 +13,30 @@ android {
         applicationId "com.ssrlive.toyvpn"
         minSdkVersion 23
         targetSdkVersion 31
+        versionName = '0.1.1'
     }
 
     buildTypes {
+        debug {
+            debuggable true
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            jniDebuggable true
+            renderscriptDebuggable true
+            applicationVariants.all { variant ->
+                variant.outputs.all {
+                    outputFileName = "${appBinaryName}_${variant.buildType.name}_${defaultConfig.versionName}.apk"
+                }
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.txt'
+            applicationVariants.all { variant ->
+                variant.outputs.all {
+                    outputFileName = "${appBinaryName}_${variant.buildType.name}_${defaultConfig.versionName}.apk"
+                }
+            }
         }
     }
 

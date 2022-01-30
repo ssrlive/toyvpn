@@ -14,31 +14,61 @@ function check_root_account() {
     fi
 }
 
+function install_tools() {
+    source /etc/os-release
+
+    if [[ "${ID}" == "centos" && ${VERSION_ID} -ge 6 ]]; then
+        yum install net-tools -y > /dev/null
+    elif [[ "${ID}" == "debian" || "${ID}" == "ubuntu" || "${ID}" == "linuxmint" ]]; then
+        apt-get install net-tools -y > /dev/null
+    else
+        echo -e "Current system is ${ID} ${VERSION_ID}, it is not in the list of supported systems, installation is interrupted."
+        exit -1
+    fi
+}
+
+# parameters:
+# ${1} return_value: last command return value.
+# ${2} cmd_text: full command text.
+# ${3} exit_script_if_failed: exit the script if failed.
 function check_cmd_success() {
     if [ ${1} -ne 0 ]; then
-        echo -e "Failed run '${2}', exiting..."
-        exit -1
+        if [ "${3}" == true ]; then
+            echo -e "Failed running \"${2}\", exiting..."
+            exit -1
+        else
+            echo -e "Failed running \"${2}\", continue..."
+        fi
+    else
+        echo -e "running \"${2}\" success, continue..."
     fi
 }
 
 function main() {
     check_root_account
 
-    apt install net-tools -y
+    install_tools
+
+    local cmd_info=""
 
     echo 1 > /proc/sys/net/ipv4/ip_forward
-    check_cmd_success $? 'echo 1 > /proc/sys/net/ipv4/ip_forward'
+    check_cmd_success $? 'echo 1 > /proc/sys/net/ipv4/ip_forward' true
 
-    iptables -t nat -A POSTROUTING -s 10.10.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE
-    check_cmd_success $? 'iptables -t nat -A POSTROUTING -s 10.10.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE'
+    cmd_info="iptables -t nat -A POSTROUTING -s 10.10.0.0/8 -o ${CURRENT_NETWORK_DEV} -j MASQUERADE"
+    ${cmd_info}
+    check_cmd_success $? "${cmd_info}" true
 
-    ip tuntap add dev ${TUN_NETWORK_DEV} mode tun
-    check_cmd_success $? 'ip tuntap add dev ${TUN_NETWORK_DEV} mode tun'
+    cmd_info="ip tuntap add dev ${TUN_NETWORK_DEV} mode tun"
+    ${cmd_info}
+    check_cmd_success $? "${cmd_info}" true
 
-    ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up
-    check_cmd_success $? 'ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up'
+    cmd_info="ifconfig ${TUN_NETWORK_DEV} 10.10.0.1 dstaddr 10.10.0.2 up"
+    ${cmd_info}
+    check_cmd_success $? "${cmd_info}" true
 
     # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0 &
+
+    echo -e "Configurate success."
 }
 
 main $@
