@@ -24,6 +24,8 @@ function check_cmd_success() {
 function main() {
     check_root_account
 
+    apt install net-tools -y
+
     echo 1 > /proc/sys/net/ipv4/ip_forward
     check_cmd_success $? 'echo 1 > /proc/sys/net/ipv4/ip_forward'
 
