@@ -44,11 +44,17 @@ function check_cmd_success() {
     fi
 }
 
-function main() {
-    check_root_account
+function remove_tunnel_settings() {
+    local cmd_info=""
 
-    install_tools
+    sleep 1
+    cmd_info="ip tuntap del dev ${TUN_NETWORK_DEV} mode tun"
+    ${cmd_info}
+    check_cmd_success $? "${cmd_info}" true
+    sleep 1
+}
 
+function create_tunnel_settings() {
     local cmd_info=""
 
     echo 1 > /proc/sys/net/ipv4/ip_forward
@@ -67,6 +73,13 @@ function main() {
     check_cmd_success $? "${cmd_info}" true
 
     # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0 &
+}
+
+function main() {
+    check_root_account
+    install_tools
+    remove_tunnel_settings
+    create_tunnel_settings
 
     echo -e "Configurate success."
 }
