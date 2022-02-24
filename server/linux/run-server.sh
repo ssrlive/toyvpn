@@ -72,7 +72,9 @@ function create_tunnel_settings() {
     ${cmd_info}
     check_cmd_success $? "${cmd_info}" true
 
-    # ./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0 &
+    echo "Please execute the following commands manually."
+    cmd_info="./ToyVpnServer ${TUN_NETWORK_DEV} 8000 test -m 1400 -a 10.10.0.2 32 -d 8.8.8.8 -r 0.0.0.0 0 &"
+    echo ${cmd_info}
 }
 
 function main() {
