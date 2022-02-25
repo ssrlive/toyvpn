@@ -317,117 +317,6 @@ int main(int argc, char **argv)
     return ret;
 }
 
-/*
-void fooo(void) {
-    // Wait for a tunnel.
-    while ((tunnel = get_tunnel(argv[2], argv[3])) != -1) {
-        int i, timer;
-        char packet[32767];
-
-        printf("%s: Here comes a new tunnel\n", argv[1]);
-
-        // On UN*X, there are many ways to deal with multiple file
-        // descriptors, such as poll(2), select(2), epoll(7) on Linux,
-        // kqueue(2) on FreeBSD, pthread(3), or even fork(2). Here we
-        // mimic everything from the client, so their source code can
-        // be easily compared side by side.
-
-        // Put the tunnel into non-blocking mode.
-        fcntl(tunnel, F_SETFL, O_NONBLOCK);
-
-        // Send the parameters several times in case of packet loss.
-        for (i = 0; i < 3; ++i) {
-            send(tunnel, parameters, sizeof(parameters), MSG_NOSIGNAL);
-        }
-
-        // Allocate the buffer for a single packet.
-        memset(packet, 0, sizeof(packet));
-
-        // We use a timer to determine the status of the tunnel. It
-        // works on both sides. A positive value means sending, and
-        // any other means receiving. We start with receiving.
-        timer = 0;
-
-        // We keep forwarding packets till something goes wrong.
-        while (true) {
-            // Assume that we did not make any progress in this iteration.
-            bool idle = true;
-
-            // Read the outgoing packet from the input stream.
-            int length = read(_interface, packet, sizeof(packet));
-            if (length > 0) {
-                // Write the outgoing packet to the tunnel.
-                send(tunnel, packet, length, MSG_NOSIGNAL);
-
-                // There might be more outgoing packets.
-                idle = false;
-
-                // If we were receiving, switch to sending.
-                if (timer < 1) {
-                    timer = 1;
-                }
-                printf("Outgoing packet write to tunnel %d size %d.\n", tunnel, length);
-            }
-
-            // Read the incoming packet from the tunnel.
-            length = recv(tunnel, packet, sizeof(packet), 0);
-            if (length == 0) {
-                break;
-            }
-            if (length > 0) {
-                // Ignore control messages, which start with zero.
-                if (packet[0] != 0) {
-                    // Write the incoming packet to the output stream.
-                    write(_interface, packet, length);
-                    printf("Tunnel %d packet write to output stream size %d.\n", tunnel, length);
-                }
-
-                // There might be more incoming packets.
-                idle = false;
-
-                // If we were sending, switch to receiving.
-                if (timer > 0) {
-                    timer = 0;
-                }
-            }
-
-            // If we are idle or waiting for the network, sleep for a
-            // fraction of time to avoid busy looping.
-            if (idle) {
-                usleep(100000);
-
-                // Increase the timer. This is inaccurate but good enough,
-                // since everything is operated in non-blocking mode.
-                timer += (timer > 0) ? 100 : -100;
-
-                // We are receiving for a long time but not sending.
-                // Can you figure out why we use a different value? :)
-                if (timer < -16000) {
-                    int i;
-                    // Send empty control messages.
-                    packet[0] = 0;
-                    for (i = 0; i < 3; ++i) {
-                        send(tunnel, packet, 1, MSG_NOSIGNAL);
-                    }
-
-                    // Switch to sending.
-                    timer = 1;
-                }
-
-                // We are sending for a long time but not receiving.
-                if (timer > 20000) {
-                    break;
-                }
-            }
-        }
-        printf("%s: The tunnel is broken\n", argv[1]);
-        close(tunnel);
-    }
-    perror("Cannot create tunnels");
-    exit(1);
-}
-// */
-
 void release_uv_buffer(uv_buf_t *buf) {
     if (buf) {
         free(buf->base);
@@ -536,7 +425,7 @@ static void _send_to_incoming_node(struct client_node *client, const uint8_t *pa
     uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_udp_done);
 }
 
-static void client_node_progress(struct client_node *client, const uint8_t *packet, size_t plen) {
+static void client_node_handle_incoming_packet(struct client_node *client, const uint8_t *packet, size_t plen) {
     struct listener_ctx *listener = client->listener;
     bool status_ok = true;
 
@@ -560,6 +449,7 @@ static void client_node_progress(struct client_node *client, const uint8_t *pack
             _send_to_incoming_node(client, packet, plen);
         } else {
             /* TODO: data stream, write to TUN interface. */
+            /* char packet[32767]; */
         }
     }
 
@@ -608,7 +498,7 @@ static void on_incoming_read(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buf,
                 cstl_set_container_add(ctx->connections, client);
             }
 
-            client_node_progress(client, (uint8_t*)buf->base, (size_t)nread);
+            client_node_handle_incoming_packet(client, (uint8_t*)buf->base, (size_t)nread);
         }
     } while (0);
 
