@@ -164,6 +164,11 @@ struct listener_ctx {
     size_t param_len;
     char secret[SECRET_MAX];
     struct cstl_set *connections;
+
+    uv_signal_t sigkill;
+    uv_signal_t sigterm;
+    uv_signal_t sigint;
+    bool shutting_down;
 };
 
 struct client_node {
@@ -206,7 +211,7 @@ static void listener_ctx_destroy(struct listener_ctx *ctx) {
     free(ctx);
 }
 
-static void udp_listener_close_cb(uv_handle_t* handle) {
+static void udp_listener_close_done(uv_handle_t* handle) {
     struct listener_ctx *ctx = CONTAINER_OF(handle, struct listener_ctx, udp_listener);
     listener_ctx_destroy(ctx);
 }
@@ -223,8 +228,29 @@ void listener_ctx_shutdown(struct listener_ctx *ctx) {
     if (ctx == NULL) {
         return;
     }
+    if (ctx->shutting_down) {
+        return;
+    }
+    ctx->shutting_down = true;
+
     cstl_set_container_traverse(ctx->connections, &connection_release, NULL);
-    uv_close((uv_handle_t *)&ctx->udp_listener, udp_listener_close_cb);
+    uv_close((uv_handle_t *)&ctx->udp_listener, udp_listener_close_done);
+
+    uv_close((uv_handle_t *)&ctx->sigint, NULL);
+    uv_close((uv_handle_t *)&ctx->sigkill, NULL);
+    uv_close((uv_handle_t *)&ctx->sigterm, NULL);
+}
+
+static void on_signal(uv_signal_t* signal, int signum) {
+    struct listener_ctx *ctx = signal->data;
+    printf("\tFired signal %d, exiting\n", signum);
+    uv_signal_stop(signal);
+    listener_ctx_shutdown(ctx);
+}
+
+static void init_signal(uv_loop_t *loop, uv_signal_t* signal, int signum) {
+    uv_signal_init(loop, signal);
+    uv_signal_start(signal, on_signal, signum);
 }
 
 #define UDP_SERVER_ADDR "0.0.0.0"
@@ -278,6 +304,11 @@ int main(int argc, char **argv)
 
     printf("Server listening on: UDP address: %s, port: %d\n", UDP_SERVER_ADDR, port);
     fflush(stdout);
+
+    ctx->sigkill.data = ctx->sigterm.data = ctx->sigint.data = ctx;
+    init_signal(loop, &ctx->sigkill, SIGKILL);
+    init_signal(loop, &ctx->sigterm, SIGTERM);
+    init_signal(loop, &ctx->sigint, SIGINT);
 
     ret = uv_run(loop, UV_RUN_DEFAULT);
 
@@ -471,7 +502,7 @@ static void client_node_shutdown(struct client_node *client) {
     }
     {
         char *info = universal_address_to_string(&client->incoming_addr, &malloc, true);
-        fprintf(stderr, "session %s has time out, shutting down\n", info);
+        fprintf(stderr, "session %s shutting down\n", info);
         free(info);
     }
 
