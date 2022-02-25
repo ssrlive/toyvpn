@@ -112,14 +112,14 @@ static int get_interface(uv_loop_t* loop, const char *name, uv_fs_t *iface_ctx) 
 
 #endif
 
-static void build_parameters(char *parameters, int size, int argc, char **argv)
+static size_t build_parameters(char *parameters, size_t size, int argc, char **argv)
 {
     /* Well, for simplicity, we just concatenate them (almost) blindly. */
-    int offset = 0;
+    size_t offset = 0;
     int i;
     for (i = 4; i < argc; ++i) {
         char *parameter = argv[i];
-        int length = strlen(parameter);
+        size_t length = strlen(parameter);
         char delimiter = ',';
 
         /* If it looks like an option, prepend a space instead of a comma. */
@@ -146,6 +146,8 @@ static void build_parameters(char *parameters, int size, int argc, char **argv)
 
     /* Control messages always start with zero. */
     parameters[0] = 0;
+
+    return offset;
 }
 
 /* ----------------------------------------------------------------------------- */
@@ -159,6 +161,7 @@ struct listener_ctx {
     uv_udp_t udp_listener;
     uv_fs_t tun_iface;
     char parameters[PARAMETERS_MAX];
+    size_t param_len;
     char secret[SECRET_MAX];
     struct cstl_set *connections;
 };
@@ -228,7 +231,6 @@ void listener_ctx_shutdown(struct listener_ctx *ctx) {
 
 int main(int argc, char **argv)
 {
-    char parameters[PARAMETERS_MAX] = { 0 };
     int tunnel, _interface;
     uv_loop_t *loop = uv_default_loop();
     struct listener_ctx *ctx = NULL;
@@ -251,12 +253,12 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    /* Parse the arguments and set the parameters. */
-    build_parameters(parameters, sizeof(parameters), argc, argv);
-
     ctx = (struct listener_ctx *)calloc(1, sizeof(*ctx));
+
     strncpy(ctx->secret, argv[3], sizeof(ctx->secret));
-    memcpy(ctx->parameters, parameters, sizeof(parameters));
+
+    /* Parse the arguments and set the parameters. */
+    ctx->param_len = build_parameters(ctx->parameters, sizeof(ctx->parameters), argc, argv);
 
     /* Get TUN interface. */
     _interface = get_interface(loop, argv[1], &ctx->tun_iface);
@@ -408,7 +410,7 @@ static void on_send_to_incoming_udp_done(uv_udp_send_t* req, int status) {
     free(info);
     free(req);
     if (status) {
-        /* fprintf(stderr, "%s error: %s\n", __FUNCTION__, uv_strerror(status)); */
+        fprintf(stderr, "%s error: %s\n", __FUNCTION__, uv_strerror(status));
     }
 }
 
@@ -482,6 +484,19 @@ static void client_timeout_cb(uv_timer_t* handle) {
     client_node_shutdown(client);
 }
 
+static void _send_to_incoming_node(struct client_node *client, const uint8_t *packet, size_t plen) {
+    uint8_t *info = (uint8_t *)calloc(plen, sizeof(*info));
+    uv_buf_t buff = uv_buf_init((char *)info, (unsigned int)plen);
+    uv_udp_send_t *req = (uv_udp_send_t *)calloc(1, sizeof(*req));
+    uv_udp_t *udp = &client->listener->udp_listener;
+    struct sockaddr *addr = &client->incoming_addr.addr;
+
+    memcpy(info, packet, plen);
+    req->data = info;
+
+    uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_udp_done);
+}
+
 static void client_node_progress(struct client_node *client, const uint8_t *packet, size_t plen) {
     struct listener_ctx *listener = client->listener;
 
@@ -493,23 +508,15 @@ static void client_node_progress(struct client_node *client, const uint8_t *pack
         size_t slen = strlen(listener->secret);
         if ((packet[0] == 0) && (memcmp(listener->secret, &packet[1], slen) == 0)) {
             client->verified = true;
-            /* TODO: begin traffic */
+            /* Send back the parameters. begin traffic */
+            _send_to_incoming_node(client, (uint8_t*)listener->parameters, listener->param_len);
         } else {
             /* error data, just drop it. */
         }
     } else {
         if (packet[0] == 0) {
-            /* heartbeat packet, just response it */
-            uint8_t *info = (uint8_t*) calloc(plen, sizeof(*info));
-            uv_buf_t buff = uv_buf_init((char *)info, (unsigned int)plen);
-            uv_udp_send_t* req = (uv_udp_send_t*)calloc(1, sizeof(*req));
-            uv_udp_t *udp = &listener->udp_listener;
-            struct sockaddr *addr = &client->incoming_addr.addr;
-
-            memcpy(info, packet, plen);
-            req->data = info;
-
-            uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_udp_done);
+            /* heartbeat packet, just response it with the same packet */
+            _send_to_incoming_node(client, packet, plen);
         } else {
             /* TODO: data stream, write to TUN interface. */
         }

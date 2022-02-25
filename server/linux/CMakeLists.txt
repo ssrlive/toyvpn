@@ -3,7 +3,7 @@ project(ToyVpnServer C)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
-set(CMAKE_C_STANDARD 90)
+set(CMAKE_C_STANDARD 99)
 
 if(NOT CMAKE_SYSTEM_NAME MATCHES "Android|Linux")
     message(FATAL_ERROR "FATAL. Support linux only recently.")
