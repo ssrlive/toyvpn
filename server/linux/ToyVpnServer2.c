@@ -464,6 +464,7 @@ static void client_iface_write_done(uv_fs_t *req) {
         struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
         uv_buf_t buf;
         
+        obj->client = fs_obj->client;
         obj->data = (uint8_t*)calloc(READ_BUFF_MAX, sizeof(uint8_t));
         buf = uv_buf_init((char*)obj->data, (unsigned int)READ_BUFF_MAX);
 
@@ -502,6 +503,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
             uv_file file = listener->tun_iface.result;
             struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
 
+            obj->client = client;
             obj->data = (uint8_t*)calloc(plen, sizeof(uint8_t));
             buf = uv_buf_init((char*)obj->data, (unsigned int)plen);
             memcpy(obj->data, packet, plen);
