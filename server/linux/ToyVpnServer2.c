@@ -276,7 +276,7 @@ int main(int argc, char **argv)
 
     ctx->connections = cstl_set_new(node_connection_comparation, NULL);
 
-    printf("Server listening on: UDP port: %s, TCP port: %d\n", UDP_SERVER_ADDR, port);
+    printf("Server listening on: UDP address: %s, port: %d\n", UDP_SERVER_ADDR, port);
     fflush(stdout);
 
     ret = uv_run(loop, UV_RUN_DEFAULT);
@@ -447,7 +447,7 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     return client;
 }
 
-static void client_node_timer_cb(uv_handle_t* handle) {
+static void client_node_timer_close_done(uv_handle_t* handle) {
     struct client_node *ctx = (struct client_node *)handle->data;
     assert(ctx == CONTAINER_OF(handle, struct client_node, timer));
     client_node_release(ctx);
@@ -466,16 +466,24 @@ static void client_node_shutdown(struct client_node *client) {
     {
         uv_timer_t *timer = &client->timer;
         uv_timer_stop(timer);
-        uv_close((uv_handle_t *)timer, client_node_timer_cb);
+        uv_close((uv_handle_t *)timer, client_node_timer_close_done);
         client_node_add_ref(client);
     }
     {
         char *info = universal_address_to_string(&client->incoming_addr, &malloc, true);
-        fprintf(stderr, "session %s has time out, shutting down", info);
+        fprintf(stderr, "session %s has time out, shutting down\n", info);
         free(info);
     }
 
     client_node_release(client);
+}
+
+static void common_restart_timer(uv_timer_t *timer, uint64_t timeout) {
+    assert(timer);
+    assert(timer->timer_cb != NULL);
+    assert(timeout > 0);
+    uv_timer_stop(timer);
+    uv_timer_start(timer, timer->timer_cb, timeout, 0);
 }
 
 static void client_timeout_cb(uv_timer_t* handle) {
@@ -499,6 +507,7 @@ static void _send_to_incoming_node(struct client_node *client, const uint8_t *pa
 
 static void client_node_progress(struct client_node *client, const uint8_t *packet, size_t plen) {
     struct listener_ctx *listener = client->listener;
+    bool status_ok = true;
 
     if ((packet == NULL) || (plen == 0) || (client==NULL)) {
         return;
@@ -512,6 +521,7 @@ static void client_node_progress(struct client_node *client, const uint8_t *pack
             _send_to_incoming_node(client, (uint8_t*)listener->parameters, listener->param_len);
         } else {
             /* error data, just drop it. */
+            status_ok = false;
         }
     } else {
         if (packet[0] == 0) {
@@ -521,7 +531,13 @@ static void client_node_progress(struct client_node *client, const uint8_t *pack
             /* TODO: data stream, write to TUN interface. */
         }
     }
-    /* TODO: reset timeout timer. */
+
+    if (status_ok) {
+        /* reset timeout timer. */
+        common_restart_timer(&client->timer, client->timeout);
+    } else {
+        client_node_shutdown(client);
+    }
 }
 
 static void on_incoming_read(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buf,
@@ -549,7 +565,7 @@ static void on_incoming_read(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buf,
             client = match.client;
 
             info = universal_address_to_string(&match.incoming_addr, &malloc, true);
-            fprintf(stderr, client ? "session %s reused" : "session %s starting", info);
+            fprintf(stderr, client ? "session %s reused\n" : "session %s starting\n", info);
             free(info);
 
             if (client == NULL) {
