@@ -154,6 +154,7 @@ static size_t build_parameters(char *parameters, size_t size, int argc, char **a
 
 #define PARAMETERS_MAX 1024
 #define SECRET_MAX 256
+#define READ_BUFF_MAX 32767
 
 int create_toyvpn_udp_listener(uv_loop_t *loop, const char* address, uint16_t port, uv_udp_t *udp_listener);
 
@@ -425,6 +426,53 @@ static void _send_to_incoming_node(struct client_node *client, const uint8_t *pa
     uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_udp_done);
 }
 
+struct fs_traffic_obj {
+    uv_fs_t fs_req;
+    uint8_t *data;
+    struct client_node *client; /* weak reference */
+};
+
+static void client_iface_read_done(uv_fs_t *req) {
+    struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
+    struct listener_ctx *listener = obj->client->listener;
+    uv_file file = listener->tun_iface.result;
+    ssize_t nread = req->result;
+
+    if (nread < 0) {
+        fprintf(stderr, "Read error: %s\n", uv_strerror(nread));
+    }
+    else if (nread == 0) {
+        uv_fs_t close_req;
+        // synchronous
+        uv_fs_close(req->loop, &close_req, file, NULL);
+    }
+    else if (nread > 0) {
+        _send_to_incoming_node(obj->client, obj->data, (size_t)nread);
+    }
+    free(obj->data);
+    free(obj);
+}
+
+static void client_iface_write_done(uv_fs_t *req) {
+    struct fs_traffic_obj *fs_obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
+    struct listener_ctx *listener = fs_obj->client->listener;
+    uv_file file = listener->tun_iface.result;
+
+    if (req->result < 0) {
+        fprintf(stderr, "Write error: %s\n", uv_strerror((int)req->result));
+    } else {
+        struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
+        uv_buf_t buf;
+        
+        obj->data = (uint8_t*)calloc(READ_BUFF_MAX, sizeof(uint8_t));
+        buf = uv_buf_init((char*)obj->data, (unsigned int)READ_BUFF_MAX);
+
+        uv_fs_read(req->loop, &obj->fs_req, file, &buf, 1, -1, client_iface_read_done);
+    }
+    free(fs_obj->data);
+    free(fs_obj);
+}
+
 static void client_node_handle_incoming_packet(struct client_node *client, const uint8_t *packet, size_t plen) {
     struct listener_ctx *listener = client->listener;
     bool status_ok = true;
@@ -448,8 +496,17 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
             /* heartbeat packet, just response it with the same packet */
             _send_to_incoming_node(client, packet, plen);
         } else {
-            /* TODO: data stream, write to TUN interface. */
-            /* char packet[32767]; */
+            /* data stream, write to TUN interface. */
+            uv_buf_t buf;
+            uv_loop_t *loop = listener->udp_listener.loop;
+            uv_file file = listener->tun_iface.result;
+            struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
+
+            obj->data = (uint8_t*)calloc(plen, sizeof(uint8_t));
+            buf = uv_buf_init((char*)obj->data, (unsigned int)plen);
+            memcpy(obj->data, packet, plen);
+
+            uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, client_iface_write_done);
         }
     }
 
