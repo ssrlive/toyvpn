@@ -175,7 +175,7 @@ struct listener_ctx {
 struct client_node {
     union sockaddr_universal incoming_addr;
     struct listener_ctx *listener; /* weak ptr. */
-    uv_timer_t timer;
+    uv_timer_t expire_timer;
     uint64_t timeout;
     bool verified;
 
@@ -360,7 +360,7 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     client = (struct client_node *) calloc(1, sizeof(*client));
     client->timeout = timeout;
 
-    timer = &client->timer;
+    timer = &client->expire_timer;
     uv_timer_init(loop, timer);
     timer->data = client;
     timer->timer_cb = cb;
@@ -370,7 +370,7 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
 
 static void client_node_timer_close_done(uv_handle_t* handle) {
     struct client_node *ctx = (struct client_node *)handle->data;
-    assert(ctx == CONTAINER_OF(handle, struct client_node, timer));
+    assert(ctx == CONTAINER_OF(handle, struct client_node, expire_timer));
     client_node_release(ctx);
 }
 
@@ -385,7 +385,7 @@ static void client_node_shutdown(struct client_node *client) {
 
     cstl_set_container_remove(client->listener->connections, client);
     {
-        uv_timer_t *timer = &client->timer;
+        uv_timer_t *timer = &client->expire_timer;
         uv_timer_stop(timer);
         uv_close((uv_handle_t *)timer, client_node_timer_close_done);
         client_node_add_ref(client);
@@ -408,7 +408,7 @@ static void common_restart_timer(uv_timer_t *timer, uint64_t timeout) {
 }
 
 static void client_timeout_cb(uv_timer_t* handle) {
-    struct client_node *client = CONTAINER_OF(handle, struct client_node, timer);
+    struct client_node *client = CONTAINER_OF(handle, struct client_node, expire_timer);
 
     client_node_shutdown(client);
 }
@@ -514,7 +514,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
 
     if (status_ok) {
         /* reset timeout timer. */
-        common_restart_timer(&client->timer, client->timeout);
+        common_restart_timer(&client->expire_timer, client->timeout);
     } else {
         client_node_shutdown(client);
     }
