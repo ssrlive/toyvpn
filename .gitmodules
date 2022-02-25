@@ -1,0 +1,8 @@
+[submodule "server/linux/libuv"]
+	path = server/linux/libuv
+	url = https://github.com/libuv/libuv.git
+	branch = v1.x
+[submodule "server/linux/cstl"]
+	path = server/linux/cstl
+	url = https://github.com/ShadowsocksR-Live/cstl.git
+	branch = master
