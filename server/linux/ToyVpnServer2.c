@@ -100,6 +100,7 @@ static uv_file get_interface(uv_loop_t* loop, const char *name) {
         strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
         if (ioctl(_interface, TUNSETIFF, &ifr) < 0) {
+            uv_fs_close(loop, &iface_ctx, _interface, NULL);
             _interface = -1;
             break;
         }
@@ -167,7 +168,7 @@ int create_toyvpn_udp_listener(uv_loop_t *loop, const char* address, uint16_t po
 
 struct listener_ctx {
     uv_udp_t udp_listener;
-    uv_file tun_iface;
+    uv_file tun_iface_fd;
     char parameters[PARAMETERS_MAX];
     size_t param_len;
     char secret[SECRET_MAX];
@@ -182,6 +183,7 @@ struct listener_ctx {
 struct client_node {
     union sockaddr_universal incoming_addr;
     struct listener_ctx *listener; /* weak ptr. */
+    uv_file tun_fd;
     uv_timer_t expire_timer;
     uint64_t timeout;
     bool verified;
@@ -216,7 +218,7 @@ static void listener_ctx_destroy(struct listener_ctx *ctx) {
     /* free memory */
     uv_fs_t close_req;
     cstl_set_delete(ctx->connections);
-    uv_fs_close(ctx->udp_listener.loop, &close_req, ctx->tun_iface, NULL);
+    uv_fs_close(ctx->udp_listener.loop, &close_req, ctx->tun_iface_fd, NULL);
     uv_fs_req_cleanup(&close_req);
     free(ctx);
 }
@@ -302,7 +304,7 @@ int main(int argc, char **argv)
         perror("Cannot get TUN interface");
         exit(1);
     }
-    ctx->tun_iface = _interface;
+    ctx->tun_iface_fd = _interface;
 
     port = atoi(argv[2]);
 
@@ -322,6 +324,8 @@ int main(int argc, char **argv)
     init_signal(loop, &ctx->sigint, SIGINT);
 
     ret = uv_run(loop, UV_RUN_DEFAULT);
+
+    uv_loop_close(loop);
 
     return ret;
 }
@@ -442,8 +446,7 @@ struct fs_traffic_obj {
 
 static void on_client_iface_read_done(uv_fs_t *req) {
     struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
-    struct listener_ctx *listener = obj->client->listener;
-    uv_file file = listener->tun_iface;
+    uv_file file = obj->client->tun_fd;
     ssize_t nread = req->result;
 
     if (nread < 0) {
@@ -464,7 +467,7 @@ static void on_client_iface_read_done(uv_fs_t *req) {
 static void begin_client_iface_read(struct client_node *client) {
     struct listener_ctx *listener = client->listener;
     uv_loop_t *loop = listener->udp_listener.loop;
-    uv_file file = listener->tun_iface;
+    uv_file file = client->tun_fd;
     struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
     uv_buf_t buf;
 
@@ -491,7 +494,7 @@ static void begin_client_iface_write(struct client_node *client, const uint8_t *
     struct listener_ctx *listener = client->listener;
     uv_buf_t buf;
     uv_loop_t *loop = listener->udp_listener.loop;
-    uv_file file = listener->tun_iface;
+    uv_file file = client->tun_fd;
     struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
 
     obj->client = client;
@@ -569,6 +572,7 @@ static void on_incoming_node_read_done(uv_udp_t *udp, ssize_t nread, const uv_bu
             if (client == NULL) {
                 client = create_client_node(udp->loop, IDLE_MAX_MS, client_timeout_cb);
                 client->listener = ctx;
+                client->tun_fd = ctx->tun_iface_fd;
                 client->incoming_addr = match.incoming_addr;
 
                 client_node_add_ref(client);
