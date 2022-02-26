@@ -178,7 +178,18 @@ struct listener_ctx {
     uv_signal_t sigterm;
     uv_signal_t sigint;
     bool shutting_down;
+    REF_COUNT_MEMBER;
 };
+
+static REF_COUNT_ADD_REF_DECL(listener_ctx); /* listener_ctx_add_ref */
+static REF_COUNT_RELEASE_DECL(listener_ctx); /* listener_ctx_release */
+
+static void listener_ctx_free_internal(struct listener_ctx *ctx) {
+    free(ctx);
+}
+
+static REF_COUNT_ADD_REF_IMPL(listener_ctx)
+static REF_COUNT_RELEASE_IMPL(listener_ctx, listener_ctx_free_internal)
 
 struct client_node {
     union sockaddr_universal incoming_addr;
@@ -214,18 +225,16 @@ int node_connection_comparation(const void *left, const void *right) {
     }
 }
 
-static void listener_ctx_destroy(struct listener_ctx *ctx) {
-    /* free memory */
-    uv_fs_t close_req;
-    cstl_set_delete(ctx->connections);
-    uv_fs_close(ctx->udp_listener.loop, &close_req, ctx->tun_iface_fd, NULL);
-    uv_fs_req_cleanup(&close_req);
-    free(ctx);
+static void udp_listener_close_done(uv_handle_t* handle) {
+    struct listener_ctx *ctx = (struct listener_ctx*)handle->data;
+    listener_ctx_release(ctx);
 }
 
-static void udp_listener_close_done(uv_handle_t* handle) {
-    struct listener_ctx *ctx = CONTAINER_OF(handle, struct listener_ctx, udp_listener);
-    listener_ctx_destroy(ctx);
+static void udp_listener_fs_close_done(uv_fs_t* req) {
+    struct listener_ctx *ctx = (struct listener_ctx*)req->data;
+    uv_fs_req_cleanup(req);
+    free(req);
+    listener_ctx_release(ctx);
 }
 
 static void client_node_shutdown(struct client_node *client);
@@ -245,16 +254,34 @@ void listener_ctx_shutdown(struct listener_ctx *ctx) {
     }
     ctx->shutting_down = true;
 
-    uv_close((uv_handle_t *)&ctx->sigint, NULL);
-    uv_close((uv_handle_t *)&ctx->sigkill, NULL);
-    uv_close((uv_handle_t *)&ctx->sigterm, NULL);
+    listener_ctx_add_ref(ctx);
+    uv_close((uv_handle_t *)&ctx->sigint, udp_listener_close_done);
+
+    listener_ctx_add_ref(ctx);
+    uv_close((uv_handle_t *)&ctx->sigkill, udp_listener_close_done);
+
+    listener_ctx_add_ref(ctx);
+    uv_close((uv_handle_t *)&ctx->sigterm, udp_listener_close_done);
 
     cstl_set_container_traverse(ctx->connections, &connection_release, NULL);
+    cstl_set_delete(ctx->connections);
+
+    listener_ctx_add_ref(ctx);
+    ctx->udp_listener.data = ctx;
     uv_close((uv_handle_t *)&ctx->udp_listener, udp_listener_close_done);
+
+    {
+        uv_fs_t *req = (uv_fs_t *) calloc(1, sizeof(*req));
+        req->data = ctx;
+        listener_ctx_add_ref(ctx);
+        uv_fs_close(ctx->udp_listener.loop, req, ctx->tun_iface_fd, udp_listener_fs_close_done);
+    }
+
+    listener_ctx_release(ctx);
 }
 
 static void on_signal(uv_signal_t* signal, int signum) {
-    struct listener_ctx *ctx = signal->data;
+    struct listener_ctx *ctx = (struct listener_ctx *)signal->data;
     printf("\tFired signal %d, exiting\n", signum);
     uv_signal_stop(signal);
     listener_ctx_shutdown(ctx);
@@ -292,6 +319,7 @@ int main(int argc, char **argv)
     }
 
     ctx = (struct listener_ctx *)calloc(1, sizeof(*ctx));
+    listener_ctx_add_ref(ctx);
 
     strncpy(ctx->secret, argv[3], sizeof(ctx->secret));
 
