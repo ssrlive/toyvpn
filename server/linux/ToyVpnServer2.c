@@ -108,7 +108,10 @@ static int get_interface(uv_loop_t* loop, const char *name, uv_fs_t *iface_ctx) 
 
 #else
 
-#error Sorry, you have to implement this part by yourself.
+static int get_interface(uv_loop_t* loop, const char *name, uv_fs_t *iface_ctx) {
+    assert(!"Sorry, you have to implement this part by yourself.");
+    return -1;
+}
 
 #endif
 
@@ -258,7 +261,7 @@ static void init_signal(uv_loop_t *loop, uv_signal_t* signal, int signum) {
 
 int main(int argc, char **argv)
 {
-    int tunnel, _interface;
+    int _interface;
     uv_loop_t *loop = uv_default_loop();
     struct listener_ctx *ctx = NULL;
     int ret = 0;
@@ -312,8 +315,6 @@ int main(int argc, char **argv)
     init_signal(loop, &ctx->sigint, SIGINT);
 
     ret = uv_run(loop, UV_RUN_DEFAULT);
-
-    (void)tunnel;
 
     return ret;
 }
@@ -404,7 +405,7 @@ static void client_timeout_cb(uv_timer_t* handle) {
     client_node_shutdown(client);
 }
 
-static void on_send_to_incoming_udp_done(uv_udp_send_t* req, int status) {
+static void on_send_to_incoming_node_done(uv_udp_send_t* req, int status) {
     uint8_t *info = req->data;
     free(info);
     free(req);
@@ -423,7 +424,7 @@ static void do_send_to_incoming_node(struct client_node *client, const uint8_t *
     memcpy(info, packet, plen);
     req->data = info;
 
-    uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_udp_done);
+    uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_node_done);
 }
 
 struct fs_traffic_obj {
