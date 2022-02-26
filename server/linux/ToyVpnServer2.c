@@ -80,27 +80,29 @@
 #include <net/if.h>
 #include <linux/if_tun.h>
 
-static int get_interface(uv_loop_t* loop, const char *name, uv_fs_t *iface_ctx) {
-    int _interface = -1;
+static uv_file get_interface(uv_loop_t* loop, const char *name) {
+    uv_file _interface = -1;
     struct ifreq ifr;
     do {
-        if ((loop == NULL) || (name == NULL) || (iface_ctx == NULL)) {
+        uv_fs_t iface_ctx;
+        if ((loop == NULL) || (name == NULL)) {
             break;
         }
         
-        if (uv_fs_open(loop, iface_ctx, "/dev/net/tun", O_RDWR | O_NONBLOCK, 0, NULL) < 0) {
+        _interface = uv_fs_open(loop, &iface_ctx, "/dev/net/tun", O_RDWR | O_NONBLOCK, 0, NULL);
+        if (_interface < 0) {
             break;
         }
+        uv_fs_req_cleanup(&iface_ctx);
 
         memset(&ifr, 0, sizeof(ifr));
         ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
         strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name));
 
-        if (ioctl(iface_ctx->result, TUNSETIFF, &ifr) < 0) {
+        if (ioctl(_interface, TUNSETIFF, &ifr) < 0) {
+            _interface = -1;
             break;
         }
-
-        _interface = iface_ctx->result;
     } while (0);
 
     return _interface;
@@ -108,8 +110,10 @@ static int get_interface(uv_loop_t* loop, const char *name, uv_fs_t *iface_ctx) 
 
 #else
 
-static int get_interface(uv_loop_t* loop, const char *name, uv_fs_t *iface_ctx) {
+static uv_file get_interface(uv_loop_t* loop, const char *name) {
     assert(!"Sorry, you have to implement this part by yourself.");
+    (void)loop;
+    (void)name;
     return -1;
 }
 
@@ -163,7 +167,7 @@ int create_toyvpn_udp_listener(uv_loop_t *loop, const char* address, uint16_t po
 
 struct listener_ctx {
     uv_udp_t udp_listener;
-    uv_fs_t tun_iface;
+    uv_file tun_iface;
     char parameters[PARAMETERS_MAX];
     size_t param_len;
     char secret[SECRET_MAX];
@@ -210,8 +214,10 @@ int node_connection_comparation(const void *left, const void *right) {
 
 static void listener_ctx_destroy(struct listener_ctx *ctx) {
     /* free memory */
+    uv_fs_t close_req;
     cstl_set_delete(ctx->connections);
-    uv_fs_req_cleanup(&ctx->tun_iface);
+    uv_fs_close(ctx->udp_listener.loop, &close_req, ctx->tun_iface, NULL);
+    uv_fs_req_cleanup(&close_req);
     free(ctx);
 }
 
@@ -291,11 +297,12 @@ int main(int argc, char **argv)
     ctx->param_len = build_parameters(ctx->parameters, sizeof(ctx->parameters), argc, argv);
 
     /* Get TUN interface. */
-    _interface = get_interface(loop, argv[1], &ctx->tun_iface);
+    _interface = get_interface(loop, argv[1]);
     if (_interface < 0) {
         perror("Cannot get TUN interface");
         exit(1);
     }
+    ctx->tun_iface = _interface;
 
     port = atoi(argv[2]);
 
@@ -436,7 +443,7 @@ struct fs_traffic_obj {
 static void on_client_iface_read_done(uv_fs_t *req) {
     struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
     struct listener_ctx *listener = obj->client->listener;
-    uv_file file = listener->tun_iface.result;
+    uv_file file = listener->tun_iface;
     ssize_t nread = req->result;
 
     if (nread < 0) {
@@ -457,7 +464,7 @@ static void on_client_iface_read_done(uv_fs_t *req) {
 static void begin_client_iface_read(struct client_node *client) {
     struct listener_ctx *listener = client->listener;
     uv_loop_t *loop = listener->udp_listener.loop;
-    uv_file file = listener->tun_iface.result;
+    uv_file file = listener->tun_iface;
     struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
     uv_buf_t buf;
 
@@ -484,7 +491,7 @@ static void begin_client_iface_write(struct client_node *client, const uint8_t *
     struct listener_ctx *listener = client->listener;
     uv_buf_t buf;
     uv_loop_t *loop = listener->udp_listener.loop;
-    uv_file file = listener->tun_iface.result;
+    uv_file file = listener->tun_iface;
     struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
 
     obj->client = client;
