@@ -360,7 +360,7 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     return client;
 }
 
-static void client_node_timer_close_done(uv_handle_t* handle) {
+static void on_client_node_timer_close_done(uv_handle_t* handle) {
     struct client_node *ctx = (struct client_node *)handle->data;
     assert(ctx == CONTAINER_OF(handle, struct client_node, expire_timer));
     client_node_release(ctx);
@@ -379,7 +379,7 @@ static void client_node_shutdown(struct client_node *client) {
     {
         uv_timer_t *timer = &client->expire_timer;
         uv_timer_stop(timer);
-        uv_close((uv_handle_t *)timer, client_node_timer_close_done);
+        uv_close((uv_handle_t *)timer, on_client_node_timer_close_done);
         client_node_add_ref(client);
     }
     {
@@ -531,7 +531,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
     }
 }
 
-static void on_incoming_read(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buf,
+static void on_incoming_node_read_done(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buf,
              const struct sockaddr *addr, unsigned flags)
 {
     struct listener_ctx *ctx;
@@ -600,7 +600,7 @@ int create_toyvpn_udp_listener(uv_loop_t *loop, const char* listen_addr, uint16_
         if (uv_udp_bind(listener, (const struct sockaddr *)&recv_addr, UV_UDP_REUSEADDR) < 0) {
             break;
         }
-        if (uv_udp_recv_start(listener, alloc_buffer, on_incoming_read) < 0) {
+        if (uv_udp_recv_start(listener, alloc_buffer, on_incoming_node_read_done) < 0) {
             break;
         }
         result = 0;
