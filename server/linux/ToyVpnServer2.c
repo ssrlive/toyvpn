@@ -237,12 +237,12 @@ void listener_ctx_shutdown(struct listener_ctx *ctx) {
     }
     ctx->shutting_down = true;
 
-    cstl_set_container_traverse(ctx->connections, &connection_release, NULL);
-    uv_close((uv_handle_t *)&ctx->udp_listener, udp_listener_close_done);
-
     uv_close((uv_handle_t *)&ctx->sigint, NULL);
     uv_close((uv_handle_t *)&ctx->sigkill, NULL);
     uv_close((uv_handle_t *)&ctx->sigterm, NULL);
+
+    cstl_set_container_traverse(ctx->connections, &connection_release, NULL);
+    uv_close((uv_handle_t *)&ctx->udp_listener, udp_listener_close_done);
 }
 
 static void on_signal(uv_signal_t* signal, int signum) {
@@ -433,7 +433,7 @@ struct fs_traffic_obj {
     struct client_node *client; /* weak reference */
 };
 
-static void client_iface_read_done(uv_fs_t *req) {
+static void on_client_iface_read_done(uv_fs_t *req) {
     struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
     struct listener_ctx *listener = obj->client->listener;
     uv_file file = listener->tun_iface.result;
@@ -454,25 +454,45 @@ static void client_iface_read_done(uv_fs_t *req) {
     free(obj);
 }
 
-static void client_iface_write_done(uv_fs_t *req) {
-    struct fs_traffic_obj *fs_obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
-    struct listener_ctx *listener = fs_obj->client->listener;
+static void begin_client_iface_read(struct client_node *client) {
+    struct listener_ctx *listener = client->listener;
+    uv_loop_t *loop = listener->udp_listener.loop;
     uv_file file = listener->tun_iface.result;
+    struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
+    uv_buf_t buf;
+
+    obj->client = client;
+    obj->data = (uint8_t *)calloc(READ_BUFF_MAX, sizeof(uint8_t));
+    buf = uv_buf_init((char *)obj->data, (unsigned int)READ_BUFF_MAX);
+
+    uv_fs_read(loop, &obj->fs_req, file, &buf, 1, -1, on_client_iface_read_done);
+}
+
+static void on_client_iface_write_done(uv_fs_t *req) {
+    struct fs_traffic_obj *fs_obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
 
     if (req->result < 0) {
         fprintf(stderr, "Write error: %s\n", uv_strerror((int)req->result));
     } else {
-        struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
-        uv_buf_t buf;
-        
-        obj->client = fs_obj->client;
-        obj->data = (uint8_t*)calloc(READ_BUFF_MAX, sizeof(uint8_t));
-        buf = uv_buf_init((char*)obj->data, (unsigned int)READ_BUFF_MAX);
-
-        uv_fs_read(req->loop, &obj->fs_req, file, &buf, 1, -1, client_iface_read_done);
+        begin_client_iface_read(fs_obj->client);
     }
     free(fs_obj->data);
     free(fs_obj);
+}
+
+static void begin_client_iface_write(struct client_node *client, const uint8_t *packet, size_t plen) {
+    struct listener_ctx *listener = client->listener;
+    uv_buf_t buf;
+    uv_loop_t *loop = listener->udp_listener.loop;
+    uv_file file = listener->tun_iface.result;
+    struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
+
+    obj->client = client;
+    obj->data = (uint8_t *)calloc(plen, sizeof(uint8_t));
+    buf = uv_buf_init((char *)obj->data, (unsigned int)plen);
+    memcpy(obj->data, packet, plen);
+
+    uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, on_client_iface_write_done);
 }
 
 static void client_node_handle_incoming_packet(struct client_node *client, const uint8_t *packet, size_t plen) {
@@ -499,17 +519,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
             do_send_to_incoming_node(client, packet, plen);
         } else {
             /* data stream, write to TUN interface. */
-            uv_buf_t buf;
-            uv_loop_t *loop = listener->udp_listener.loop;
-            uv_file file = listener->tun_iface.result;
-            struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
-
-            obj->client = client;
-            obj->data = (uint8_t*)calloc(plen, sizeof(uint8_t));
-            buf = uv_buf_init((char*)obj->data, (unsigned int)plen);
-            memcpy(obj->data, packet, plen);
-
-            uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, client_iface_write_done);
+            begin_client_iface_write(client, packet, plen);
         }
     }
 
