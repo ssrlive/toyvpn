@@ -326,15 +326,6 @@ void release_uv_buffer(uv_buf_t *buf) {
     }
 }
 
-static void on_send_to_incoming_udp_done(uv_udp_send_t* req, int status) {
-    uint8_t *info = req->data;
-    free(info);
-    free(req);
-    if (status) {
-        fprintf(stderr, "%s error: %s\n", __FUNCTION__, uv_strerror(status));
-    }
-}
-
 struct matching_connect {
     union sockaddr_universal incoming_addr;
     struct client_node *client;
@@ -413,7 +404,16 @@ static void client_timeout_cb(uv_timer_t* handle) {
     client_node_shutdown(client);
 }
 
-static void _send_to_incoming_node(struct client_node *client, const uint8_t *packet, size_t plen) {
+static void on_send_to_incoming_udp_done(uv_udp_send_t* req, int status) {
+    uint8_t *info = req->data;
+    free(info);
+    free(req);
+    if (status) {
+        fprintf(stderr, "%s error: %s\n", __FUNCTION__, uv_strerror(status));
+    }
+}
+
+static void do_send_to_incoming_node(struct client_node *client, const uint8_t *packet, size_t plen) {
     uint8_t *info = (uint8_t *)calloc(plen, sizeof(*info));
     uv_buf_t buff = uv_buf_init((char *)info, (unsigned int)plen);
     uv_udp_send_t *req = (uv_udp_send_t *)calloc(1, sizeof(*req));
@@ -447,7 +447,7 @@ static void client_iface_read_done(uv_fs_t *req) {
         uv_fs_close(req->loop, &close_req, file, NULL);
     }
     else if (nread > 0) {
-        _send_to_incoming_node(obj->client, obj->data, (size_t)nread);
+        do_send_to_incoming_node(obj->client, obj->data, (size_t)nread);
     }
     free(obj->data);
     free(obj);
@@ -486,7 +486,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
         if ((packet[0] == 0) && (memcmp(listener->secret, &packet[1], slen) == 0)) {
             client->verified = true;
             /* Send back the parameters. begin traffic */
-            _send_to_incoming_node(client, (uint8_t*)listener->parameters, listener->param_len);
+            do_send_to_incoming_node(client, (uint8_t*)listener->parameters, listener->param_len);
         } else {
             /* error data, just drop it. */
             status_ok = false;
@@ -494,7 +494,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
     } else {
         if (packet[0] == 0) {
             /* heartbeat packet, just response it with the same packet */
-            _send_to_incoming_node(client, packet, plen);
+            do_send_to_incoming_node(client, packet, plen);
         } else {
             /* data stream, write to TUN interface. */
             uv_buf_t buf;
