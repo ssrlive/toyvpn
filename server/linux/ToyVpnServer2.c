@@ -414,6 +414,8 @@ static void client_node_shutdown(struct client_node *client) {
     }
     client->shutting_down = true;
 
+    client->verified = false;
+
     cstl_set_container_remove(client->listener->connections, client);
     {
         uv_timer_t *timer = &client->expire_timer;
@@ -449,7 +451,7 @@ static void on_send_to_incoming_node_done(uv_udp_send_t* req, int status) {
     free(info);
     free(req);
     if (status) {
-        fprintf(stderr, "%s error: %s\n", __FUNCTION__, uv_strerror(status));
+        fprintf(stderr, "In line %d error: %s\n", __LINE__, uv_strerror(status));
     }
 }
 
@@ -472,24 +474,31 @@ struct fs_traffic_obj {
     struct client_node *client; /* weak reference */
 };
 
+static void begin_client_iface_read(struct client_node *client);
+
 static void on_client_iface_read_done(uv_fs_t *req) {
     struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
-    uv_file file = obj->client->tun_fd;
+    struct client_node *client = obj->client;
     ssize_t nread = req->result;
 
     if (nread < 0) {
         fprintf(stderr, "Read error: %s\n", uv_strerror(nread));
     }
     else if (nread == 0) {
-        uv_fs_t close_req;
-        // synchronous
-        uv_fs_close(req->loop, &close_req, file, NULL);
+        fprintf(stderr, "Read empty packet\n");
     }
     else if (nread > 0) {
-        do_send_to_incoming_node(obj->client, obj->data, (size_t)nread);
+        if (client->verified) {
+            do_send_to_incoming_node(client, obj->data, (size_t)nread);
+        }
     }
     free(obj->data);
     free(obj);
+
+    if (client->verified) {
+        begin_client_iface_read(client);
+    }
+    client_node_release(client);
 }
 
 static void begin_client_iface_read(struct client_node *client) {
@@ -503,6 +512,7 @@ static void begin_client_iface_read(struct client_node *client) {
     obj->data = (uint8_t *)calloc(READ_BUFF_MAX, sizeof(uint8_t));
     buf = uv_buf_init((char *)obj->data, (unsigned int)READ_BUFF_MAX);
 
+    client_node_add_ref(client);
     uv_fs_read(loop, &obj->fs_req, file, &buf, 1, -1, on_client_iface_read_done);
 }
 
@@ -511,8 +521,6 @@ static void on_client_iface_write_done(uv_fs_t *req) {
 
     if (req->result < 0) {
         fprintf(stderr, "Write error: %s\n", uv_strerror((int)req->result));
-    } else {
-        begin_client_iface_read(fs_obj->client);
     }
     free(fs_obj->data);
     free(fs_obj);
@@ -558,6 +566,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
         } else {
             /* data stream, write to TUN interface. */
             begin_client_iface_write(client, packet, plen);
+            begin_client_iface_read(client);
         }
     }
 
