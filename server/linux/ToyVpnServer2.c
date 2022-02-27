@@ -46,7 +46,8 @@
 #endif /* CONTAINER_OF */
 
 #define IDLE_MAX_MS (20 * 1000)
-#define IFACE_READ_CYCLE_MS 200
+#define IFACE_READ_CYCLE_MS 50
+#define UDP_SERVER_ADDR "0.0.0.0"
 
 #ifdef __linux__
 
@@ -174,6 +175,7 @@ struct listener_ctx {
     size_t param_len;
     char secret[SECRET_MAX];
     struct cstl_set *connections;
+    bool verbose;
 
     uv_signal_t sigkill;
     uv_signal_t sigterm;
@@ -294,72 +296,6 @@ static void on_signal(uv_signal_t* signal, int signum) {
 static void init_signal(uv_loop_t *loop, uv_signal_t* signal, int signum) {
     uv_signal_init(loop, signal);
     uv_signal_start(signal, on_signal, signum);
-}
-
-#define UDP_SERVER_ADDR "0.0.0.0"
-
-int main(int argc, char **argv)
-{
-    int _interface;
-    uv_loop_t *loop = uv_default_loop();
-    struct listener_ctx *ctx = NULL;
-    int ret = 0;
-    uint16_t port = 0;
-
-    if (argc < 5) {
-        printf("Usage: %s <tunN> <port> <secret> options...\n"
-               "\n"
-               "Options:\n"
-               "  -m <MTU> for the maximum transmission unit\n"
-               "  -a <address> <prefix-length> for the private address\n"
-               "  -r <address> <prefix-length> for the forwarding route\n"
-               "  -d <address> for the domain name server\n"
-               "  -s <domain> for the search domain\n"
-               "\n"
-               "Note that TUN interface needs to be configured properly\n"
-               "BEFORE running this program. For more information, please\n"
-               "read the comments in the source code.\n\n", argv[0]);
-        exit(1);
-    }
-
-    ctx = (struct listener_ctx *)calloc(1, sizeof(*ctx));
-    listener_ctx_add_ref(ctx);
-
-    strncpy(ctx->secret, argv[3], sizeof(ctx->secret));
-
-    /* Parse the arguments and set the parameters. */
-    ctx->param_len = build_parameters(ctx->parameters, sizeof(ctx->parameters), argc, argv);
-
-    /* Get TUN interface. */
-    _interface = get_interface(loop, argv[1]);
-    if (_interface < 0) {
-        perror("Cannot get TUN interface");
-        exit(1);
-    }
-    ctx->tun_iface_fd = _interface;
-
-    port = atoi(argv[2]);
-
-    if (create_toyvpn_udp_listener(loop, UDP_SERVER_ADDR, port, &ctx->udp_listener) < 0) {
-        perror("Can't create UDP listener");
-        exit(-1);
-    }
-
-    ctx->connections = cstl_set_new(node_connection_comparation, NULL);
-
-    printf("Server listening on: UDP address: %s, port: %d\n", UDP_SERVER_ADDR, port);
-    fflush(stdout);
-
-    ctx->sigkill.data = ctx->sigterm.data = ctx->sigint.data = ctx;
-    init_signal(loop, &ctx->sigkill, SIGKILL);
-    init_signal(loop, &ctx->sigterm, SIGTERM);
-    init_signal(loop, &ctx->sigint, SIGINT);
-
-    ret = uv_run(loop, UV_RUN_DEFAULT);
-
-    uv_loop_close(loop);
-
-    return ret;
 }
 
 void release_uv_buffer(uv_buf_t *buf) {
@@ -515,7 +451,9 @@ static void on_client_iface_read_done(uv_fs_t *req) {
     ssize_t nread = req->result;
 
     if (nread < 0) {
-        fprintf(stderr, "Read error: %s\n", uv_strerror(nread));
+        if (client->listener->verbose) {
+            fprintf(stderr, "Read error: %s\n", uv_strerror(nread));
+        }
     }
     else if (nread == 0) {
         fprintf(stderr, "Read empty packet\n");
@@ -633,7 +571,9 @@ static void on_incoming_node_read_done(uv_udp_t *udp, ssize_t nread, const uv_bu
             client = match.client;
 
             info = universal_address_to_string(&match.incoming_addr, &malloc, true);
-            fprintf(stderr, client ? "session %s reused\n" : "session %s starting\n", info);
+            if (client == NULL || ctx->verbose) {
+                fprintf(stderr, client ? "session %s reused\n" : "session %s starting\n", info);
+            }
             free(info);
 
             if (client == NULL) {
@@ -684,4 +624,69 @@ int create_toyvpn_udp_listener(uv_loop_t *loop, const char* listen_addr, uint16_
         result = 0;
     } while (0);
     return result;
+}
+
+int main(int argc, char **argv) {
+    int _interface;
+    uv_loop_t *loop = uv_default_loop();
+    struct listener_ctx *ctx = NULL;
+    int ret = 0;
+    uint16_t port = 0;
+
+    if (argc < 5) {
+        printf("Usage: %s <tunN> <port> <secret> options...\n"
+               "\n"
+               "Options:\n"
+               "  -m <MTU> for the maximum transmission unit\n"
+               "  -a <address> <prefix-length> for the private address\n"
+               "  -r <address> <prefix-length> for the forwarding route\n"
+               "  -d <address> for the domain name server\n"
+               "  -s <domain> for the search domain\n"
+               "\n"
+               "Note that TUN interface needs to be configured properly\n"
+               "BEFORE running this program. For more information, please\n"
+               "read the comments in the source code.\n\n", argv[0]);
+        exit(1);
+    }
+
+    ctx = (struct listener_ctx *)calloc(1, sizeof(*ctx));
+    listener_ctx_add_ref(ctx);
+
+    strncpy(ctx->secret, argv[3], sizeof(ctx->secret));
+
+    /* Parse the arguments and set the parameters. */
+    ctx->param_len = build_parameters(ctx->parameters, sizeof(ctx->parameters), argc, argv);
+
+    /* Get TUN interface. */
+    _interface = get_interface(loop, argv[1]);
+    if (_interface < 0) {
+        perror("Cannot get TUN interface");
+        exit(1);
+    }
+    ctx->tun_iface_fd = _interface;
+
+    port = atoi(argv[2]);
+
+    if (create_toyvpn_udp_listener(loop, UDP_SERVER_ADDR, port, &ctx->udp_listener) < 0) {
+        perror("Can't create UDP listener");
+        exit(-1);
+    }
+
+    ctx->connections = cstl_set_new(node_connection_comparation, NULL);
+
+    printf("Server listening on: UDP address: %s, port: %d\n", UDP_SERVER_ADDR, port);
+    fflush(stdout);
+
+    ctx->sigkill.data = ctx->sigterm.data = ctx->sigint.data = ctx;
+    init_signal(loop, &ctx->sigkill, SIGKILL);
+    init_signal(loop, &ctx->sigterm, SIGTERM);
+    init_signal(loop, &ctx->sigint, SIGINT);
+
+    ctx->verbose = false;
+
+    ret = uv_run(loop, UV_RUN_DEFAULT);
+
+    uv_loop_close(loop);
+
+    return ret;
 }
