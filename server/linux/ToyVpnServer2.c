@@ -46,6 +46,7 @@
 #endif /* CONTAINER_OF */
 
 #define IDLE_MAX_MS (20 * 1000)
+#define IFACE_READ_CYCLE_MS 200
 
 #ifdef __linux__
 
@@ -198,6 +199,9 @@ struct client_node {
     uv_timer_t expire_timer;
     uint64_t timeout;
     bool verified;
+
+    uv_timer_t cycle_timer;
+    uint64_t cycle;
 
     bool shutting_down;
     REF_COUNT_MEMBER;
@@ -383,6 +387,16 @@ static void find_matching_connection(struct cstl_set *set, const void *obj, cstl
     (void)set;
 }
 
+static void begin_client_iface_read(struct client_node *client);
+
+static void tun_iface_read_timer_cb(uv_timer_t *handle) {
+    struct client_node *client = CONTAINER_OF(handle, struct client_node, cycle_timer);
+    assert(handle->data == client);
+    if (client->verified) {
+        begin_client_iface_read(client);
+    }
+}
+
 struct client_node *
 create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     uv_timer_t *timer;
@@ -396,12 +410,26 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     timer->data = client;
     timer->timer_cb = cb;
 
+    {
+        uv_timer_t *timer2 = &client->cycle_timer;
+        uv_timer_init(loop, timer2);
+        timer2->data = client;
+        timer2->timer_cb = tun_iface_read_timer_cb;
+        client->cycle = IFACE_READ_CYCLE_MS;
+    }
+
     return client;
 }
 
 static void on_client_node_timer_close_done(uv_handle_t* handle) {
     struct client_node *ctx = (struct client_node *)handle->data;
     assert(ctx == CONTAINER_OF(handle, struct client_node, expire_timer));
+    client_node_release(ctx);
+}
+
+static void on_client_node_cycle_timer_close_done(uv_handle_t* handle) {
+    struct client_node *ctx = (struct client_node *)handle->data;
+    assert(ctx == CONTAINER_OF(handle, struct client_node, cycle_timer));
     client_node_release(ctx);
 }
 
@@ -424,6 +452,12 @@ static void client_node_shutdown(struct client_node *client) {
         client_node_add_ref(client);
     }
     {
+        uv_timer_t *timer = &client->cycle_timer;
+        uv_timer_stop(timer);
+        uv_close((uv_handle_t *)timer, on_client_node_cycle_timer_close_done);
+        client_node_add_ref(client);
+    }
+    {
         char *info = universal_address_to_string(&client->incoming_addr, &malloc, true);
         fprintf(stderr, "session %s shutting down\n", info);
         free(info);
@@ -432,16 +466,17 @@ static void client_node_shutdown(struct client_node *client) {
     client_node_release(client);
 }
 
-static void common_restart_timer(uv_timer_t *timer, uint64_t timeout) {
+static void common_restart_timer(uv_timer_t *timer, uint64_t timeout, bool repeat) {
     assert(timer);
     assert(timer->timer_cb != NULL);
     assert(timeout > 0);
     uv_timer_stop(timer);
-    uv_timer_start(timer, timer->timer_cb, timeout, 0);
+    uv_timer_start(timer, timer->timer_cb, timeout, repeat ? timeout : 0);
 }
 
 static void client_timeout_cb(uv_timer_t* handle) {
     struct client_node *client = CONTAINER_OF(handle, struct client_node, expire_timer);
+    assert(client == handle->data);
 
     client_node_shutdown(client);
 }
@@ -474,8 +509,6 @@ struct fs_traffic_obj {
     struct client_node *client; /* weak reference */
 };
 
-static void begin_client_iface_read(struct client_node *client);
-
 static void on_client_iface_read_done(uv_fs_t *req) {
     struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
     struct client_node *client = obj->client;
@@ -495,9 +528,6 @@ static void on_client_iface_read_done(uv_fs_t *req) {
     free(obj->data);
     free(obj);
 
-    if (client->verified) {
-        begin_client_iface_read(client);
-    }
     client_node_release(client);
 }
 
@@ -566,13 +596,13 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
         } else {
             /* data stream, write to TUN interface. */
             begin_client_iface_write(client, packet, plen);
-            begin_client_iface_read(client);
+            common_restart_timer(&client->cycle_timer, client->cycle, true);
         }
     }
 
     if (status_ok) {
         /* reset timeout timer. */
-        common_restart_timer(&client->expire_timer, client->timeout);
+        common_restart_timer(&client->expire_timer, client->timeout, false);
     } else {
         client_node_shutdown(client);
     }
