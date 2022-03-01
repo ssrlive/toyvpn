@@ -5,10 +5,6 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 set(CMAKE_C_STANDARD 99)
 
-if(NOT CMAKE_SYSTEM_NAME MATCHES "Android|Linux")
-    message(FATAL_ERROR "FATAL. Support linux only recently.")
-endif()
-
 set(LIBUV_BUILD_TESTS OFF)
 set(LIBUV_BUILD_BENCH OFF)
 add_subdirectory(libuv)
@@ -28,6 +24,9 @@ add_executable(ToyVpnServer
 
 target_link_libraries(ToyVpnServer uv_a cstl)
 target_include_directories(ToyVpnServer PRIVATE libuv/include ${CSTL_ROOT_DIR}/inc)
+if (MSVC)
+    target_compile_definitions(ToyVpnServer PRIVATE /wd4996 -D_CRT_SECURE_NO_WARNINGS)
+endif()
 if(ANDROID)
     set_target_properties(ToyVpnServer PROPERTIES PREFIX "lib" SUFFIX ".so")
 endif()
