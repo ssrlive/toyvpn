@@ -39,6 +39,7 @@
 #include <c_stl_lib.h>
 #include "sockaddr_universal.h"
 #include "ref_count_def.h"
+#include "ssrbuffer.h"
 
 #if !defined(CONTAINER_OF)
 #define CONTAINER_OF(ptr, type, field) \
@@ -202,6 +203,8 @@ struct client_node {
     bool verified;
 
     uv_poll_t tun_poll;
+    bool pool_running;
+    struct buffer_t *incoming_data;
 
     bool shutting_down;
     REF_COUNT_MEMBER;
@@ -336,6 +339,7 @@ static void find_matching_connection(struct cstl_set *set, const void *obj, cstl
 }
 
 static void perform_client_node_tun_iface_read(struct client_node *client);
+static void perform_client_node_tun_iface_write(struct client_node* client, const uint8_t* packet, size_t plen);
 
 static void tun_iface_poll_cb(uv_poll_t* handle, int status, int events) {
     struct client_node *client = CONTAINER_OF(handle, struct client_node, tun_poll);
@@ -345,6 +349,13 @@ static void tun_iface_poll_cb(uv_poll_t* handle, int status, int events) {
     } else {
         if (client->verified && ((events & UV_READABLE) == UV_READABLE)) {
             perform_client_node_tun_iface_read(client);
+        }
+        if (client->verified && ((events & UV_WRITABLE) == UV_WRITABLE)) {
+            struct buffer_t* data = client->incoming_data;
+            const uint8_t* raw = buffer_get_data(data);
+            size_t len = buffer_get_length(data);
+            perform_client_node_tun_iface_write(client, raw, len);
+            buffer_reset(data, true);
         }
     }
 }
@@ -368,6 +379,9 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
         uv_poll_init(loop, poll, client->tun_fd);
         poll->data = client;
     }
+
+    client->incoming_data = buffer_create(READ_BUFF_MAX);
+    client->pool_running = false;
 
     return client;
 }
@@ -405,6 +419,7 @@ static void client_node_shutdown(struct client_node *client) {
     {
         uv_poll_t *poll = &client->tun_poll;
         uv_poll_stop(poll);
+        client->pool_running = false;
         uv_close((uv_handle_t*)poll, on_client_node_tun_poll_close_done);
         client_node_add_ref(client);
     }
@@ -413,6 +428,8 @@ static void client_node_shutdown(struct client_node *client) {
         fprintf(stderr, "session %s shutting down\n", info);
         free(info);
     }
+
+    buffer_release(client->incoming_data);
 
     client_node_release(client);
 }
@@ -514,7 +531,7 @@ static void on_client_node_tun_iface_write_done(uv_fs_t *req) {
     free(fs_obj);
 }
 
-static void begin_client_iface_write(struct client_node *client, const uint8_t *packet, size_t plen) {
+static void perform_client_node_tun_iface_write(struct client_node *client, const uint8_t *packet, size_t plen) {
     struct listener_ctx *listener = client->listener;
     uv_buf_t buf;
     uv_loop_t *loop = listener->udp_listener.loop;
@@ -553,8 +570,11 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
             do_send_to_incoming_node(client, packet, plen);
         } else {
             /* data stream, write to TUN interface. */
-            begin_client_iface_write(client, packet, plen);
-            uv_poll_start(&client->tun_poll, UV_READABLE, tun_iface_poll_cb);
+            buffer_concatenate_raw(client->incoming_data, packet, plen);
+            if (client->pool_running == false) {
+                client->pool_running = true;
+                uv_poll_start(&client->tun_poll, UV_READABLE | UV_WRITABLE, tun_iface_poll_cb);
+            }
         }
     }
 
