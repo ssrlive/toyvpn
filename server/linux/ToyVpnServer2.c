@@ -286,7 +286,21 @@ void listener_ctx_shutdown(struct listener_ctx *ctx) {
 
 static void on_signal(uv_signal_t* signal, int signum) {
     struct listener_ctx *ctx = (struct listener_ctx *)signal->data;
-    printf("\tFired signal %d, exiting\n", signum);
+    size_t i;
+    struct signal_info {
+        int signum;
+        const char* text;
+    } info[] = {
+        {SIGKILL, "SIGKILL" },
+        {SIGTERM, "SIGTERM" },
+        {SIGINT, "SIGINT" },
+    };
+    for (i = 0; i < sizeof(info) / sizeof(info[0]); i++) {
+        if (info[i].signum == signum) {
+            printf("\tFired signal %s (%d), exiting\n", info[i].text, signum);
+            break;
+        }
+    }
     uv_signal_stop(signal);
     listener_ctx_shutdown(ctx);
 }
