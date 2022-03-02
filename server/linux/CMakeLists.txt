@@ -17,6 +17,8 @@ add_subdirectory(cstl)
 
 add_executable(ToyVpnServer
   ToyVpnServer2.c
+  ssrbuffer.c
+  ssrbuffer.h
   sockaddr_universal.c
   sockaddr_universal.h
   ref_count_def.h

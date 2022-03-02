@@ -347,15 +347,20 @@ static void tun_iface_poll_cb(uv_poll_t* handle, int status, int events) {
     if (status < 0) {
         fprintf(stderr, "poll error: %s\n", uv_strerror(status));
     } else {
-        if (client->verified && ((events & UV_READABLE) == UV_READABLE)) {
+        if (client->verified == false) {
+            return;
+        }
+        if ((events & UV_READABLE) == UV_READABLE) {
             perform_client_node_tun_iface_read(client);
         }
-        if (client->verified && ((events & UV_WRITABLE) == UV_WRITABLE)) {
+        if ((events & UV_WRITABLE) == UV_WRITABLE) {
             struct buffer_t* data = client->incoming_data;
-            const uint8_t* raw = buffer_get_data(data);
             size_t len = buffer_get_length(data);
-            perform_client_node_tun_iface_write(client, raw, len);
-            buffer_reset(data, true);
+            if (len > 0) {
+                const uint8_t* raw = buffer_get_data(data);
+                perform_client_node_tun_iface_write(client, raw, len);
+                buffer_reset(data, true);
+            }
         }
     }
 }
@@ -532,18 +537,25 @@ static void on_client_node_tun_iface_write_done(uv_fs_t *req) {
 }
 
 static void perform_client_node_tun_iface_write(struct client_node *client, const uint8_t *packet, size_t plen) {
-    struct listener_ctx *listener = client->listener;
-    uv_buf_t buf;
-    uv_loop_t *loop = listener->udp_listener.loop;
-    uv_file file = client->tun_fd;
-    struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
+    if (client == NULL || packet == NULL || plen == 0) {
+        return;
+    }
+    {
+        struct listener_ctx* listener = client->listener;
+        uv_buf_t buf;
+        uv_loop_t* loop = listener->udp_listener.loop;
+        uv_file file = client->tun_fd;
+        struct fs_traffic_obj* obj = (struct fs_traffic_obj*)calloc(1, sizeof(*obj));
 
-    obj->client = client;
-    obj->data = (uint8_t *)calloc(plen, sizeof(uint8_t));
-    buf = uv_buf_init((char *)obj->data, (unsigned int)plen);
-    memcpy(obj->data, packet, plen);
+        assert(obj);
+        obj->client = client;
+        obj->data = (uint8_t*)calloc(plen, sizeof(uint8_t));
+        assert(obj->data);
+        buf = uv_buf_init((char*)obj->data, (unsigned int)plen);
+        memcpy(obj->data, packet, plen);
 
-    uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, on_client_node_tun_iface_write_done);
+        uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, on_client_node_tun_iface_write_done);
+    }
 }
 
 static void client_node_handle_incoming_packet(struct client_node *client, const uint8_t *packet, size_t plen) {
