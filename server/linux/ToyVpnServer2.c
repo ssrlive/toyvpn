@@ -48,6 +48,9 @@
 
 #define IDLE_MAX_MS (20 * 1000)
 #define UDP_SERVER_ADDR "0.0.0.0"
+#define PARAMETERS_MAX 1024
+#define SECRET_MAX 256
+#define READ_BUFF_MAX (32 * 1024)
 
 #ifdef __linux__
 
@@ -161,10 +164,6 @@ static size_t build_parameters(char *parameters, size_t size, int argc, char **a
 }
 
 /* ----------------------------------------------------------------------------- */
-
-#define PARAMETERS_MAX 1024
-#define SECRET_MAX 256
-#define READ_BUFF_MAX 32767
 
 int create_toyvpn_udp_listener(uv_loop_t *loop, const char* address, uint16_t port, uv_udp_t *udp_listener);
 
