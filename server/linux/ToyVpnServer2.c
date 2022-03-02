@@ -46,7 +46,6 @@
 #endif /* CONTAINER_OF */
 
 #define IDLE_MAX_MS (20 * 1000)
-#define IFACE_READ_CYCLE_MS 50
 #define UDP_SERVER_ADDR "0.0.0.0"
 
 #ifdef __linux__
@@ -202,8 +201,7 @@ struct client_node {
     uint64_t timeout;
     bool verified;
 
-    uv_timer_t cycle_timer;
-    uint64_t cycle;
+    uv_poll_t tun_poll;
 
     bool shutting_down;
     REF_COUNT_MEMBER;
@@ -323,13 +321,17 @@ static void find_matching_connection(struct cstl_set *set, const void *obj, cstl
     (void)set;
 }
 
-static void begin_client_iface_read(struct client_node *client);
+static void perform_client_node_tun_iface_read(struct client_node *client);
 
-static void tun_iface_read_timer_cb(uv_timer_t *handle) {
-    struct client_node *client = CONTAINER_OF(handle, struct client_node, cycle_timer);
+static void tun_iface_poll_cb(uv_poll_t* handle, int status, int events) {
+    struct client_node *client = CONTAINER_OF(handle, struct client_node, tun_poll);
     assert(handle->data == client);
-    if (client->verified) {
-        begin_client_iface_read(client);
+    if (status < 0) {
+        fprintf(stderr, "poll error: %s\n", uv_strerror(status));
+    } else {
+        if (client->verified && ((events & UV_READABLE) == UV_READABLE)) {
+            perform_client_node_tun_iface_read(client);
+        }
     }
 }
 
@@ -339,6 +341,7 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     struct client_node *client;
 
     client = (struct client_node *) calloc(1, sizeof(*client));
+    assert(client);
     client->timeout = timeout;
 
     timer = &client->expire_timer;
@@ -347,11 +350,9 @@ create_client_node(uv_loop_t* loop, uint64_t timeout, uv_timer_cb cb) {
     timer->timer_cb = cb;
 
     {
-        uv_timer_t *timer2 = &client->cycle_timer;
-        uv_timer_init(loop, timer2);
-        timer2->data = client;
-        timer2->timer_cb = tun_iface_read_timer_cb;
-        client->cycle = IFACE_READ_CYCLE_MS;
+        uv_poll_t* poll = &client->tun_poll;
+        uv_poll_init(loop, poll, client->tun_fd);
+        poll->data = client;
     }
 
     return client;
@@ -363,9 +364,9 @@ static void on_client_node_timer_close_done(uv_handle_t* handle) {
     client_node_release(ctx);
 }
 
-static void on_client_node_cycle_timer_close_done(uv_handle_t* handle) {
+static void on_client_node_tun_poll_close_done(uv_handle_t* handle) {
     struct client_node *ctx = (struct client_node *)handle->data;
-    assert(ctx == CONTAINER_OF(handle, struct client_node, cycle_timer));
+    assert(ctx == CONTAINER_OF(handle, struct client_node, tun_poll));
     client_node_release(ctx);
 }
 
@@ -388,9 +389,9 @@ static void client_node_shutdown(struct client_node *client) {
         client_node_add_ref(client);
     }
     {
-        uv_timer_t *timer = &client->cycle_timer;
-        uv_timer_stop(timer);
-        uv_close((uv_handle_t *)timer, on_client_node_cycle_timer_close_done);
+        uv_poll_t *poll = &client->tun_poll;
+        uv_poll_stop(poll);
+        uv_close((uv_handle_t*)poll, on_client_node_tun_poll_close_done);
         client_node_add_ref(client);
     }
     {
@@ -445,7 +446,7 @@ struct fs_traffic_obj {
     struct client_node *client; /* weak reference */
 };
 
-static void on_client_iface_read_done(uv_fs_t *req) {
+static void on_client_node_tun_iface_read_done(uv_fs_t *req) {
     struct fs_traffic_obj *obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
     struct client_node *client = obj->client;
     ssize_t nread = req->result;
@@ -469,22 +470,27 @@ static void on_client_iface_read_done(uv_fs_t *req) {
     client_node_release(client);
 }
 
-static void begin_client_iface_read(struct client_node *client) {
+static void perform_client_node_tun_iface_read(struct client_node *client) {
     struct listener_ctx *listener = client->listener;
     uv_loop_t *loop = listener->udp_listener.loop;
     uv_file file = client->tun_fd;
     struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
     uv_buf_t buf;
 
+    if (obj == NULL) {
+        assert(!"allocate memory failed");
+        return;
+    }
+
     obj->client = client;
     obj->data = (uint8_t *)calloc(READ_BUFF_MAX, sizeof(uint8_t));
     buf = uv_buf_init((char *)obj->data, (unsigned int)READ_BUFF_MAX);
 
     client_node_add_ref(client);
-    uv_fs_read(loop, &obj->fs_req, file, &buf, 1, -1, on_client_iface_read_done);
+    uv_fs_read(loop, &obj->fs_req, file, &buf, 1, -1, on_client_node_tun_iface_read_done);
 }
 
-static void on_client_iface_write_done(uv_fs_t *req) {
+static void on_client_node_tun_iface_write_done(uv_fs_t *req) {
     struct fs_traffic_obj *fs_obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
 
     if (req->result < 0) {
@@ -506,7 +512,7 @@ static void begin_client_iface_write(struct client_node *client, const uint8_t *
     buf = uv_buf_init((char *)obj->data, (unsigned int)plen);
     memcpy(obj->data, packet, plen);
 
-    uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, on_client_iface_write_done);
+    uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, on_client_node_tun_iface_write_done);
 }
 
 static void client_node_handle_incoming_packet(struct client_node *client, const uint8_t *packet, size_t plen) {
@@ -534,7 +540,7 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
         } else {
             /* data stream, write to TUN interface. */
             begin_client_iface_write(client, packet, plen);
-            common_restart_timer(&client->cycle_timer, client->cycle, true);
+            uv_poll_start(&client->tun_poll, UV_READABLE, tun_iface_poll_cb);
         }
     }
 
