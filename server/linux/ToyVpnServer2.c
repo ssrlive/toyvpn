@@ -478,6 +478,7 @@ static void do_send_to_incoming_node(struct client_node *client, const uint8_t *
 struct fs_traffic_obj {
     uv_fs_t fs_req;
     uint8_t *data;
+    size_t data_len;
     struct client_node *client; /* weak reference */
 };
 
@@ -529,7 +530,7 @@ static void on_client_node_tun_iface_write_done(uv_fs_t *req) {
     struct fs_traffic_obj *fs_obj = CONTAINER_OF(req, struct fs_traffic_obj, fs_req);
 
     if (req->result < 0) {
-        fprintf(stderr, "Write error: %s\n", uv_strerror((int)req->result));
+        fprintf(stderr, "Write (size %ld) error: %s\n", fs_obj->data_len, uv_strerror((int)req->result));
     }
     free(fs_obj->data);
     free(fs_obj);
@@ -552,6 +553,9 @@ static void perform_client_node_tun_iface_write(struct client_node *client, cons
         assert(obj->data);
         buf = uv_buf_init((char*)obj->data, (unsigned int)plen);
         memcpy(obj->data, packet, plen);
+
+        obj->data_len = plen;
+        fprintf(stderr, "Write size: %ld\n", plen);
 
         uv_fs_write(loop, &obj->fs_req, file, &buf, 1, -1, on_client_node_tun_iface_write_done);
     }
@@ -668,6 +672,12 @@ int create_toyvpn_udp_listener(uv_loop_t *loop, const char* listen_addr, uint16_
         }
         if (uv_udp_bind(listener, (const struct sockaddr *)&recv_addr, UV_UDP_REUSEADDR) < 0) {
             break;
+        }
+        {
+            /* Put the tunnel into non-blocking mode. */
+            uv_os_fd_t fd;
+            uv_fileno((uv_handle_t*)listener, &fd);
+            fcntl((int)fd, F_SETFL, O_NONBLOCK);
         }
         if (uv_udp_recv_start(listener, alloc_buffer, on_incoming_node_read_done) < 0) {
             break;
