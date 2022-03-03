@@ -47,10 +47,11 @@
 #endif /* CONTAINER_OF */
 
 #define IDLE_MAX_MS (20 * 1000)
-#define UDP_SERVER_ADDR "0.0.0.0"
+#define VPN_SERVER_ADDR "0.0.0.0"
 #define PARAMETERS_MAX 1024
 #define SECRET_MAX 256
 #define READ_BUFF_MAX (32 * 1024)
+#define DEFAULT_BACKLOG 128
 
 #ifdef __linux__
 
@@ -165,10 +166,8 @@ static size_t build_parameters(char *parameters, size_t size, int argc, char **a
 
 /* ----------------------------------------------------------------------------- */
 
-int create_toyvpn_udp_listener(uv_loop_t *loop, const char* address, uint16_t port, uv_udp_t *udp_listener);
-
 struct listener_ctx {
-    uv_udp_t udp_listener;
+    uv_tcp_t tcp_listener;
     uv_file tun_iface_fd;
     char parameters[PARAMETERS_MAX];
     size_t param_len;
@@ -194,7 +193,7 @@ static REF_COUNT_ADD_REF_IMPL(listener_ctx)
 static REF_COUNT_RELEASE_IMPL(listener_ctx, listener_ctx_free_internal)
 
 struct client_node {
-    union sockaddr_universal incoming_addr;
+    uv_tcp_t tcp_incoming;
     struct listener_ctx *listener; /* weak ptr. */
     uv_file tun_fd;
     uv_timer_t expire_timer;
@@ -231,16 +230,28 @@ int node_connection_comparation(const void *left, const void *right) {
     }
 }
 
-static void udp_listener_close_done(uv_handle_t* handle) {
+static void listener_ctx_uv_close_done(uv_handle_t* handle) {
     struct listener_ctx *ctx = (struct listener_ctx*)handle->data;
     listener_ctx_release(ctx);
 }
 
-static void udp_listener_fs_close_done(uv_fs_t* req) {
+static void listener_ctx_uv_fs_close_done(uv_fs_t* req) {
     struct listener_ctx *ctx = (struct listener_ctx*)req->data;
     uv_fs_req_cleanup(req);
     free(req);
     listener_ctx_release(ctx);
+}
+
+static  char * get_peername(uv_tcp_t *t, char*result, size_t len) {
+	union sockaddr_universal addr;
+	int alen = sizeof(addr);
+	int r = uv_tcp_getpeername(t, &addr.addr, &alen);
+	if (r == 0) {
+        char *p = universal_address_to_string(&addr, &malloc, true);
+        strncpy(result, p, len);
+        free(p);
+	}
+	return result;
 }
 
 static void client_node_shutdown(struct client_node *client);
@@ -261,26 +272,26 @@ void listener_ctx_shutdown(struct listener_ctx *ctx) {
     ctx->shutting_down = true;
 
     listener_ctx_add_ref(ctx);
-    uv_close((uv_handle_t *)&ctx->sigint, udp_listener_close_done);
+    uv_close((uv_handle_t *)&ctx->sigint, listener_ctx_uv_close_done);
 
     listener_ctx_add_ref(ctx);
-    uv_close((uv_handle_t *)&ctx->sigkill, udp_listener_close_done);
+    uv_close((uv_handle_t *)&ctx->sigkill, listener_ctx_uv_close_done);
 
     listener_ctx_add_ref(ctx);
-    uv_close((uv_handle_t *)&ctx->sigterm, udp_listener_close_done);
+    uv_close((uv_handle_t *)&ctx->sigterm, listener_ctx_uv_close_done);
 
     cstl_set_container_traverse(ctx->connections, &connection_release, NULL);
     cstl_set_delete(ctx->connections);
 
     listener_ctx_add_ref(ctx);
-    ctx->udp_listener.data = ctx;
-    uv_close((uv_handle_t *)&ctx->udp_listener, udp_listener_close_done);
+    ctx->tcp_listener.data = ctx;
+    uv_close((uv_handle_t *)&ctx->tcp_listener, listener_ctx_uv_close_done);
 
     {
         uv_fs_t *req = (uv_fs_t *) calloc(1, sizeof(*req));
         req->data = ctx;
         listener_ctx_add_ref(ctx);
-        uv_fs_close(ctx->udp_listener.loop, req, ctx->tun_iface_fd, udp_listener_fs_close_done);
+        uv_fs_close(ctx->tcp_listener.loop, req, ctx->tun_iface_fd, listener_ctx_uv_fs_close_done);
     }
 
     listener_ctx_release(ctx);
@@ -318,23 +329,6 @@ void release_uv_buffer(uv_buf_t *buf) {
         buf->base = NULL;
         buf->len = 0;
     }
-}
-
-struct matching_connect {
-    union sockaddr_universal incoming_addr;
-    struct client_node *client;
-};
-
-static void find_matching_connection(struct cstl_set *set, const void *obj, cstl_bool *stop, void *p) {
-    struct matching_connect *match = (struct matching_connect *)p;
-    struct client_node *client = (struct client_node *)obj;
-    if (memcmp(&match->incoming_addr, &client->incoming_addr, sizeof(match->incoming_addr)) == 0) {
-        match->client = client;
-        if (stop) {
-            *stop = cstl_true;
-        }
-    }
-    (void)set;
 }
 
 static void perform_client_node_tun_iface_read(struct client_node *client);
@@ -402,7 +396,14 @@ static void on_client_node_tun_poll_close_done(uv_handle_t* handle) {
     client_node_release(ctx);
 }
 
+static void on_client_node_tcp_close_done(uv_handle_t* handle) {
+    struct client_node *ctx = CONTAINER_OF(handle, struct client_node, tcp_incoming);
+    assert(ctx == handle->data);
+    client_node_release(ctx);
+}
+
 static void client_node_shutdown(struct client_node *client) {
+    char info[SECRET_MAX] = { 0 };
     if (client == NULL) {
         return;
     }
@@ -428,10 +429,14 @@ static void client_node_shutdown(struct client_node *client) {
         client_node_add_ref(client);
     }
     {
-        char *info = universal_address_to_string(&client->incoming_addr, &malloc, true);
-        fprintf(stderr, "session %s shutting down\n", info);
-        free(info);
+        uv_tcp_t *tcp = &client->tcp_incoming;
+        uv_read_stop((uv_stream_t*)tcp);
+        get_peername(tcp, info, sizeof(info));
+        uv_close((uv_handle_t*)tcp, on_client_node_tcp_close_done);
+        client_node_add_ref(client);
     }
+
+    fprintf(stderr, "session %s shutting down\n", info);
 
     buffer_release(client->incoming_data);
 
@@ -453,7 +458,7 @@ static void client_timeout_cb(uv_timer_t* handle) {
     client_node_shutdown(client);
 }
 
-static void on_send_to_incoming_node_done(uv_udp_send_t* req, int status) {
+static void on_send_to_incoming_node_done(uv_write_t* req, int status) {
     uint8_t *info = req->data;
     free(info);
     free(req);
@@ -465,14 +470,13 @@ static void on_send_to_incoming_node_done(uv_udp_send_t* req, int status) {
 static void do_send_to_incoming_node(struct client_node *client, const uint8_t *packet, size_t plen) {
     uint8_t *info = (uint8_t *)calloc(plen, sizeof(*info));
     uv_buf_t buff = uv_buf_init((char *)info, (unsigned int)plen);
-    uv_udp_send_t *req = (uv_udp_send_t *)calloc(1, sizeof(*req));
-    uv_udp_t *udp = &client->listener->udp_listener;
-    struct sockaddr *addr = &client->incoming_addr.addr;
+    uv_write_t *req = (uv_write_t *)calloc(1, sizeof(*req));
+    uv_stream_t *tcp = (uv_stream_t *) &client->tcp_incoming;
 
     memcpy(info, packet, plen);
     req->data = info;
 
-    uv_udp_send(req, udp, &buff, 1, addr, on_send_to_incoming_node_done);
+    uv_write(req, tcp, &buff, 1, on_send_to_incoming_node_done);
 }
 
 struct fs_traffic_obj {
@@ -507,7 +511,7 @@ static void on_client_node_tun_iface_read_done(uv_fs_t *req) {
 
 static void perform_client_node_tun_iface_read(struct client_node *client) {
     struct listener_ctx *listener = client->listener;
-    uv_loop_t *loop = listener->udp_listener.loop;
+    uv_loop_t *loop = listener->tcp_listener.loop;
     uv_file file = client->tun_fd;
     struct fs_traffic_obj *obj = (struct fs_traffic_obj *)calloc(1, sizeof(*obj));
     uv_buf_t buf;
@@ -542,7 +546,7 @@ static void perform_client_node_tun_iface_write(struct client_node *client, cons
     {
         struct listener_ctx* listener = client->listener;
         uv_buf_t buf;
-        uv_loop_t* loop = listener->udp_listener.loop;
+        uv_loop_t* loop = listener->tcp_listener.loop;
         uv_file file = client->tun_fd;
         struct fs_traffic_obj* obj = (struct fs_traffic_obj*)calloc(1, sizeof(*obj));
 
@@ -597,52 +601,20 @@ static void client_node_handle_incoming_packet(struct client_node *client, const
     }
 }
 
-static void on_incoming_node_read_done(uv_udp_t *udp, ssize_t nread, const uv_buf_t *buf,
-             const struct sockaddr *addr, unsigned flags)
-{
-    struct listener_ctx *ctx;
+static void on_client_node_data_arrival(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
+    struct client_node *client = CONTAINER_OF(stream, struct client_node, tcp_incoming);
     do {
-        if (nread <= 0) {
-            if (nread < 0) {
-                fprintf(stderr, "Read error %s\n", uv_err_name(nread));
-            }
+        if (nread == 0) {
             break;
         }
-
-        if (nread > 0) {
-            struct client_node *client;
-            char *info;
-
-            struct matching_connect match = { {{0}}, 0 };
-            match.incoming_addr.addr = *addr;
-
-            ctx = CONTAINER_OF(udp, struct listener_ctx, udp_listener);
-
-            cstl_set_container_traverse(ctx->connections, &find_matching_connection, &match);
-            client = match.client;
-
-            info = universal_address_to_string(&match.incoming_addr, &malloc, true);
-            if (client == NULL || ctx->verbose) {
-                fprintf(stderr, client ? "session %s reused\n" : "session %s starting\n", info);
-            }
-            free(info);
-
-            if (client == NULL) {
-                client = create_client_node(udp->loop, IDLE_MAX_MS, client_timeout_cb);
-                client->listener = ctx;
-                client->tun_fd = ctx->tun_iface_fd;
-                client->incoming_addr = match.incoming_addr;
-
-                client_node_add_ref(client);
-                cstl_set_container_add(ctx->connections, client);
-            }
-
-            client_node_handle_incoming_packet(client, (uint8_t*)buf->base, (size_t)nread);
+        if (nread < 0) {
+            // UV_EOF or error
+            client_node_shutdown(client);
+            break;
         }
+        client_node_handle_incoming_packet(client, (uint8_t*)buf->base, (size_t)nread);
     } while (0);
-
-    release_uv_buffer((uv_buf_t *)buf);
-    (void)flags;
+    release_uv_buffer((uv_buf_t*)buf);
 }
 
 static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf)
@@ -652,27 +624,50 @@ static void alloc_buffer(uv_handle_t *handle, size_t suggested_size, uv_buf_t *b
     (void)handle;
 }
 
-int create_toyvpn_udp_listener(uv_loop_t *loop, const char* listen_addr, uint16_t port, uv_udp_t *listener)
+static void listen_incoming_client_node_cb(uv_stream_t* listener, int status) {
+    uv_loop_t *loop = listener->loop;
+    struct listener_ctx *ctx = CONTAINER_OF(listener, struct listener_ctx, tcp_listener);
+    struct client_node *client;
+    uv_tcp_t *tcp;
+    int result = 0;
+
+    if (status < 0) {
+        fprintf(stderr, "Incoming connection error %s\n", uv_strerror(status));
+        return;
+    }
+
+    client = create_client_node(loop, IDLE_MAX_MS, client_timeout_cb);
+    client->listener = ctx;
+    client->tun_fd = ctx->tun_iface_fd;
+
+    client_node_add_ref(client);
+    cstl_set_container_add(ctx->connections, client);
+
+    tcp = &client->tcp_incoming;
+    uv_tcp_init(loop, tcp);
+    tcp->data = client;
+    result = uv_accept(listener, (uv_stream_t*)tcp);
+    assert(result == 0);
+    result = uv_read_start((uv_stream_t*)tcp, alloc_buffer, on_client_node_data_arrival);
+    assert(result == 0);
+}
+
+int create_toyvpn_tcp_listener(uv_loop_t *loop, const char* listen_addr, uint16_t port, uv_tcp_t *listener)
 {
     int result = -1;
     do {
-        struct sockaddr_in recv_addr;
+        union sockaddr_universal recv_addr;
         if ((loop == NULL) || (listen_addr == NULL) || (port == 0) || (listener == NULL)) {
             break;
         }
-        if (uv_ip4_addr(listen_addr, port, &recv_addr) < 0) {
+        if ((result = uv_ip4_addr(listen_addr, port, &recv_addr.addr4)) < 0) {
             break;
         }
-        if (uv_udp_init(loop, listener) < 0) {
-            break;
-        }
-        if (uv_udp_bind(listener, (const struct sockaddr *)&recv_addr, UV_UDP_REUSEADDR) < 0) {
-            break;
-        }
-        if (uv_udp_recv_start(listener, alloc_buffer, on_incoming_node_read_done) < 0) {
-            break;
-        }
-        result = 0;
+        result = uv_tcp_init(loop, listener);
+        assert(result == 0);
+        result = uv_tcp_bind(listener, &recv_addr.addr, 0);
+        assert(result == 0);
+        result = uv_listen((uv_stream_t*)listener, DEFAULT_BACKLOG, listen_incoming_client_node_cb);
     } while (0);
     return result;
 }
@@ -718,14 +713,14 @@ int main(int argc, char **argv) {
 
     port = atoi(argv[2]);
 
-    if (create_toyvpn_udp_listener(loop, UDP_SERVER_ADDR, port, &ctx->udp_listener) < 0) {
-        perror("Can't create UDP listener");
+    if (create_toyvpn_tcp_listener(loop, VPN_SERVER_ADDR, port, &ctx->tcp_listener) < 0) {
+        perror("Can't create TCP listener");
         exit(-1);
     }
 
     ctx->connections = cstl_set_new(node_connection_comparation, NULL);
 
-    printf("Server listening on: UDP address: %s, port: %d\n", UDP_SERVER_ADDR, port);
+    printf("Server listening on: TCP address: %s, port: %d\n", VPN_SERVER_ADDR, port);
     fflush(stdout);
 
     ctx->sigkill.data = ctx->sigterm.data = ctx->sigint.data = ctx;

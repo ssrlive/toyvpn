@@ -35,7 +35,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.nio.channels.DatagramChannel;
+import java.nio.channels.SocketChannel;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -177,7 +177,7 @@ public class ToyVpnRunnable implements Runnable {
 
     private boolean run(SocketAddress server)
             throws InterruptedException, IllegalArgumentException, IllegalStateException {
-        DatagramChannel tunnel = null;
+        SocketChannel tunnel = null;
         ParcelFileDescriptor iface = null;
         boolean success = false;
         try {
@@ -187,8 +187,8 @@ public class ToyVpnRunnable implements Runnable {
                 }
             }
 
-            // Create a DatagramChannel as the VPN tunnel.
-            tunnel = DatagramChannel.open();
+            // Create a SocketChannel as the VPN tunnel.
+            tunnel = SocketChannel.open();
 
             // Protect the tunnel before connecting to avoid loopback.
             if (!mService.protect(tunnel.socket())) {
@@ -307,7 +307,6 @@ public class ToyVpnRunnable implements Runnable {
                     iface.close();
                 }
                 if (tunnel != null) {
-                    tunnel.disconnect();
                     tunnel.close();
                 }
             } catch (Exception e) {
@@ -317,7 +316,7 @@ public class ToyVpnRunnable implements Runnable {
         return success;
     }
 
-    private String handshakeServer(DatagramChannel tunnel)
+    private String handshakeServer(SocketChannel tunnel)
             throws IOException, InterruptedException {
         // To build a secured tunnel, we should perform mutual authentication
         // and exchange session keys for encryption. To keep things simple in
@@ -333,7 +332,7 @@ public class ToyVpnRunnable implements Runnable {
         packet.put((byte) 0).put(mSharedSecret).flip();
 
         // Send the secret several times in case of packet loss.
-        for (int i = 0; i < 3; ++i) {
+        {
             packet.position(0);
             tunnel.write(packet);
         }
