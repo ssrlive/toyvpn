@@ -1,0 +1,20 @@
+[package]
+name = "toyvpn"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tun = { git = "https://github.com/ssrlive/rust-tun.git", features = ["async", ] }
+tokio = { version = "1.17.0", features = ["full"] }
+tokio-util = { version = "0.7.0", features = ["codec"], optional = true }
+libc = "0.2"
+packet = "0.1"
+futures = "0.3"
+
+[lib]
+name = "toyvpn"
+
+[[bin]]
+name = "toyvpn"
