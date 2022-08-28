@@ -12,6 +12,7 @@ tokio-util = { version = "0.7.0", features = ["codec"], optional = true }
 libc = "0.2"
 packet = "0.1"
 futures = "0.3"
+anyhow = "1.0.62"
 
 [lib]
 name = "toyvpn"
