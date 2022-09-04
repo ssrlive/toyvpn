@@ -20,12 +20,14 @@ use tun::AsyncDevice;
 
 use std::env;
 
+#[derive(Debug)]
 pub struct Server {
     pub socket: UdpSocket,
     secret: String,
     parameters: String,
 }
 
+#[derive(Debug)]
 struct ClientNode {
     verified: bool,
     thread: Option<JoinHandle<()>>,
